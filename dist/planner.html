@@ -122,7 +122,7 @@ td.n, th.n { text-align: right; white-space: nowrap; }
         <button class="btn" id="btnExample" type="button" hidden>Use example</button>
         <input type="file" id="fileSave" accept=".json,.bak,.lbk,application/json" hidden>
       </div>
-      <div class="small muted" style="flex-basis:100%">Save location: <span class="num">%USERPROFILE%\AppData\LocalLow\Turbolento Games\Lootborne\save_&lt;steamid&gt;_game.json</span>. Drop it here or use the button. <span id="loadMsg" class="err"></span></div>
+      <div class="small muted" style="flex-basis:100%">Upload one file: <span class="num">save_&lt;your Steam ID&gt;_game.json</span> (not the <span class="num">.bak</span> copy). It is in the folder <span class="num">%USERPROFILE%\AppData\LocalLow\Turbolento Games\Lootborne</span>; paste that into the File Explorer address bar to get there. Use the button, or drag the file onto this box. <span id="loadMsg" class="err"></span></div>
     </div>
   </header>
 
@@ -208,7 +208,7 @@ td.n, th.n { text-align: right; white-space: nowrap; }
         <h2>PvP matchups</h2>
         <p class="muted" style="max-width:72ch">There is no single best PvP build: the answer depends on who you fight. This tab finds the build that does best against a pool of opponents, shows the result per opponent, and tells you who still beats you. Load your replays to use the players you actually meet.</p>
         <div class="row"><button class="btn" type="button" id="pvpLoad">Load replay files</button><input type="file" id="fileReplays" accept=".json,application/json" multiple hidden><span class="small" id="pvpMsg"></span></div>
-        <p class="small muted">Replay folder: <span class="num">%USERPROFILE%\AppData\LocalLow\Turbolento Games\Lootborne\Replays</span>. Select every file in it (the game keeps the last 15). Each opponent's gear is read from the replay; their perks and stat points are fitted to the swings. Replays stay in your browser.</p>
+        <p class="small muted">Upload every file in the folder <span class="num">%USERPROFILE%\AppData\LocalLow\Turbolento Games\Lootborne\Replays</span> (paste that into the File Explorer address bar, then select all; the game keeps the last 15). Each opponent's gear is read from the replay; their perks and stat points are fitted to the swings. Replays stay in your browser.</p>
         <div class="tw" id="pvpOpps"></div>
       </section>
       <section class="blk">
