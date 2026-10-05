@@ -1,0 +1,141 @@
+<title>Lootborne Arena Planner</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/*CSS*/
+</style>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Eternal Arena build simulator</p>
+      <h1>Lootborne Arena Planner</h1>
+      <p class="lede">Pick a goal, say what gear and perks are allowed, and the planner simulates thousands of builds from your save to find the best one and show why. Everything runs in your browser; the save never leaves your computer.</p>
+    </div>
+    <div class="char" id="char">
+      <div><div class="who" id="charName"></div><div class="small muted" id="charLine"></div></div>
+      <div class="row">
+        <button class="btn" id="btnLoad" type="button">Load save file</button>
+        <button class="btn" id="btnExample" type="button" hidden>Use example</button>
+        <input type="file" id="fileSave" accept=".json,.bak,.lbk,application/json" hidden>
+      </div>
+      <div class="small muted" style="flex-basis:100%">Save location: <span class="num">%USERPROFILE%\AppData\LocalLow\Turbolento Games\Lootborne\save_&lt;steamid&gt;_game.json</span>. Drop it here or use the button. <span id="loadMsg" class="err"></span></div>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-optimise" aria-selected="true" data-tab="optimise" type="button">Find the best build</button>
+    <button role="tab" id="tab-compare" aria-selected="false" data-tab="compare" type="button">Compare builds</button>
+    <button role="tab" id="tab-model" aria-selected="false" data-tab="model" type="button">How it works</button>
+  </nav>
+
+  <main id="pane-optimise" class="bench">
+    <form class="rail" id="form" autocomplete="off">
+      <fieldset><legend>Goal</legend><div id="goals" style="display:flex;flex-direction:column;gap:6px"></div></fieldset>
+      <fieldset><legend>Gear allowed</legend>
+        <label class="opt"><input type="radio" name="itemSource" id="src-owned" value="owned"><span>Only what I own<span class="d">What you can equip right now.</span></span></label>
+        <label class="opt"><input type="radio" name="itemSource" id="src-market" value="market" checked><span>Owned + marketplace<span class="d">Anything tradable up to Mythic, plus your own Ascended and boss items.</span></span></label>
+        <label class="opt"><input type="radio" name="itemSource" id="src-all" value="all"><span>Everything in the game<span class="d">Includes Ascended you do not own. A target build, not a shopping list.</span></span></label>
+      </fieldset>
+      <fieldset><legend>Perks</legend>
+        <div class="row">
+          <label>Allowed<select id="perkSource"><option value="owned">Perks I own</option><option value="all">All perks</option></select></label>
+          <label>Slots<select id="perkSlots"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+        </div>
+      </fieldset>
+      <fieldset><legend>Stat points</legend>
+        <div class="row"><label>Allocation<select id="alloc"><option value="save">Keep my current allocation</option><option value="free">Free to respec</option></select></label></div>
+      </fieldset>
+      <fieldset><legend>Potions</legend>
+        <div class="row"><label>Mode<select id="potMode"><option value="none">No potions</option><option value="fixed">Use the ones I pick</option><option value="owned">Let it choose from mine</option><option value="any">Let it choose any two</option></select></label></div>
+        <div class="row" id="potPick" hidden><label>Slot 1<select id="pot1"></select></label><label>Slot 2<select id="pot2"></select></label></div>
+      </fieldset>
+      <fieldset><legend>Search effort</legend>
+        <div class="row"><label>Depth<select id="depth"><option value="quick">Quick (seconds)</option><option value="standard" selected>Standard (about a minute)</option><option value="thorough">Thorough (several minutes)</option></select></label>
+        <label>Start wave<input type="number" id="startWave" min="1" max="399" step="1"></label></div>
+      </fieldset>
+      <details class="adv" id="adv"><summary>More restrictions and assumptions</summary>
+        <div class="inner">
+          <fieldset><legend>Keep these equipped items</legend><div id="locks" style="display:flex;flex-direction:column;gap:3px"></div></fieldset>
+          <fieldset><legend>Never use these items</legend>
+            <div class="row"><input type="text" id="banInput" list="itemList" placeholder="Item name"><button class="btn" type="button" id="banAdd">Exclude</button></div>
+            <datalist id="itemList"></datalist><div class="chips" id="banChips"></div></fieldset>
+          <fieldset><legend>Perk rules</legend><p class="small muted">Click a perk to cycle: allowed, must use, never use. Dashed perks are not owned.</p><div class="chips" id="perkChips"></div></fieldset>
+          <fieldset><legend>Arena bosses already beaten</legend><div class="row" id="bosses"></div></fieldset>
+          <fieldset><legend>Bloodmark and pace assumptions</legend>
+            <div class="row">
+              <label>PvP win rate %<input type="number" id="pvpWin" min="0" max="100" step="5" value="50"></label>
+              <label>PvP every (min)<select id="pvpEvery"><option value="7">7</option><option value="3.5">3.5 (relief active)</option></select></label>
+              <label>Pace correction<input type="number" id="pace" min="1" max="3" step="0.05" value="1"></label>
+            </div>
+            <p class="small muted">Pace correction slows every per-hour figure. Measured against real play the model ran about 1.3x fast for glass farms and 1.5 to 1.9x for slow tanks. Rankings do not depend on it.</p>
+          </fieldset>
+        </div>
+      </details>
+      <div class="row"><button class="btn primary" id="btnRun" type="submit">Find the best build</button><button class="btn" id="btnStop" type="button" hidden>Stop and show best so far</button></div>
+      <div class="progress" id="progress" hidden><div class="bar"><i id="progBar"></i></div><div class="small muted" id="progText"></div></div>
+    </form>
+    <div class="out" id="out"></div>
+  </main>
+
+  <main id="pane-compare" hidden>
+    <div class="out">
+      <section class="blk">
+        <h2>Compare builds side by side</h2>
+        <p class="muted" style="max-width:70ch">Edit any slot, including items and perks you do not own, then simulate. Every build runs through the same four seeds, so differences come from the builds and not from luck.</p>
+        <div class="row">
+          <button class="btn" type="button" id="cmpAddEq">Add equipped build</button>
+          <button class="btn" type="button" id="cmpAddBest" disabled>Add best found</button>
+          <select id="cmpPreset"></select>
+          <label class="small muted row">Start wave <input type="number" id="cmpStart" min="1" max="399"></label>
+          <label class="small muted row">Sim hours <input type="number" id="cmpHours" min="10" max="1000" step="10" value="150"></label>
+          <button class="btn primary" type="button" id="cmpRun">Simulate these builds</button>
+          <span class="small muted" id="cmpMsg"></span>
+        </div>
+      </section>
+      <div class="cmp-grid" id="cmpCards"></div>
+      <div id="cmpOut" class="out"></div>
+    </div>
+  </main>
+
+  <main id="pane-model" hidden>
+    <div class="prose">
+      <h2>What the planner simulates</h2>
+      <p>The engine is a swing-by-swing copy of the game's arena combat, built from the decompiled client (builds 3 to 5). A run plays hours of auto-fight: enemy rolls per wave, parry and crit rolls, item effects, perks, deaths that drop you to the previous multiple of five, post-fight regen and stamina rests. A fixed random seed means the same inputs always give the same answer.</p>
+      <ul>
+        <li><b>Stats.</b> Base 400 HP, 8 ATK, 5 DEF, 5% CRIT, 3% PARRY. Per point: +3.2 HP, +0.2 ATK, +0.8 DEF, +0.3% CRIT, +0.25% PARRY. CRIT caps at 60%, PARRY at 55%.</li>
+        <li><b>A swing.</b> Parry roll, then ATK x 0.8 to 1.2, x2 on a crit, x 60 / (DEF + 60). Lifesteal is capped at 15% and all healing from one swing at 6% of max HP.</li>
+        <li><b>Arena scaling.</b> With w = wave + 5: enemy HP x (0.0022 w&sup2; + 0.1 w + 1.5), ATK x (0.001 w&sup2; + 0.06 w + 1.7). Ten kills per wave; bosses at 10, 20, 30 and 40.</li>
+        <li><b>Drops.</b> 0.75 x (12% blue, 20% purple) per kill plus item bonus (cap 28%), pity at 9 kills. Rarity rows by wave band: 1-10 has no Mythic, 11-20 2%, 21-30 4%, 31+ 6%. Rarity-upgrade gear (cap 24%) promotes one tier.</li>
+        <li><b>Mythic-equivalents.</b> Mythic drops plus lower drops valued through the forge (25 legendaries make one Mythic, 20 epics one legendary, and so on).</li>
+        <li><b>Ascended.</b> Counted from reclear rolls only: 0.4% per finished wave on 16-39 and 1% from wave 40, for waves at or below your record. Each Ascended is a uniform pick from 15, so a specific one takes about 15 drops. New-record milestones (every 5 waves: 10% at 40-55, 20% from 60) and the wave-40 boss are one-offs on top.</li>
+        <li><b>Bloodmarks.</b> Dismantle value of every drop (1 / 3 / 6 / 12 / 20 by rarity) plus automatic PvP (13 per win, 6 per loss, gear bonus capped at +50%). PvP fights are not simulated; set the win rate you actually see. Tradable drops cannot be dismantled in game, so treat the dismantle part as an upper bound.</li>
+        <li><b>Stamina.</b> 0.8 per battle, then a rest until full. Real hours include those rests; game time runs at 1.25x.</li>
+      </ul>
+      <h2>How the search works</h2>
+      <p>It starts from your equipped build and from known archetypes (tank, glass cannon), adapted to your restrictions. For each start it tries every allowed item in one slot, keeps the best, moves to the next slot, then weapons as pairs, perks, stat points and potions, and repeats until nothing improves by more than 1.5%. Candidates are screened on one seed, the top few are confirmed on two, and the finalists are re-run on four fresh seeds for three times as long. The explanations come from the same simulator: undoing one change at a time, removing one perk at a time, and trying single swaps from outside your restrictions.</p>
+      <h2>Where it is weak</h2>
+      <ul>
+        <li>The model is faster than the game by roughly 1.3x to 1.9x depending on the build, and its highest push ceilings are optimistic. Trust rankings more than absolute numbers.</li>
+        <li>Potion effects for Rampart, Vigor, Fury and Bastion are modelled from their text. Armor Breaker, Sunder Oil and Executioner's Draught are not modelled.</li>
+        <li>Mirror Echo and Rival's Calling are not modelled. A few rare item clauses (temporary HP buffs, DEF shred every N attacks) are ignored.</li>
+        <li>It is a local search: a better build can exist that is more than one swap away from every start. Thorough depth and the "everything" setting reduce that risk.</li>
+        <li>Only the Eternal Arena is covered, not sector clears or PvP win rates.</li>
+      </ul>
+    </div>
+  </main>
+
+  <footer class="small muted" style="border-top:1px solid var(--line);padding-top:12px;max-width:90ch;display:flex;flex-direction:column;gap:6px">
+    <p><b>Unofficial fan project.</b> This planner is a free, non-commercial hobby tool. It is not affiliated with, endorsed by or sponsored by Turbolento Games or Valve.</p>
+    <p>Lootborne and its item, perk and potion names, stats and descriptions belong to their respective owners and are shown here for reference only. The author of this page claims no ownership of them.</p>
+    <p>All figures are estimates from a community-made model of the game and may be wrong or out of date after a game update. Provided as is, with no warranty; decisions you make from it, including marketplace purchases, are your own.</p>
+    <p>Your save file is read inside your browser and is never uploaded or sent anywhere. The page does not modify the save.</p>
+  </footer>
+</div>
+<script id="engineSrc">
+/*ENGINE*/
+</script>
+<script>
+/*PLANNER*/
+</script>
+<script>
+/*APP*/
+</script>
