@@ -4,7 +4,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const { BYNAME, PERKS, PERK_IDS, GOALS, POS_NAME, ORDER, RARITY, POTIONS, POTION_NAMES } = LB;
 const STAT = ['HP', 'ATK', 'DEF', 'CRIT', 'PARRY'];
-const state = { profile: null, result: null, running: false, cancel: false, bans: [], perkRule: {}, cmp: [], cmpRes: null };
+const state = { opps: [], profile: null, result: null, running: false, cancel: false, bans: [], perkRule: {}, cmp: [], cmpRes: null };
 
 /* ------------------------------------------------------------------ worker pool */
 const Pool = (function () {
@@ -80,6 +80,7 @@ function setProfile(p, msg) {
   $('cmpPreset').innerHTML = '<option value="">Add a saved preset…</option>' + p.presets.map((q, i) => '<option value="' + i + '">' + esc(q.name) + '</option>').join('');
   $('cmpPreset').hidden = !p.presets.length;
   state.cmp = [equippedBuild('Equipped')];
+  state.opps = defaultOpps(); renderOpps(); $('pvpOut').innerHTML = ''; $('pvpMsg').textContent = '';
   renderOut(); renderCmpCards(); $('cmpOut').innerHTML = ''; $('cmpAddBest').disabled = true;
 }
 const equippedBuild = label => ({ label, names: state.profile.equipped.slice(), perks: pad5(state.profile.equippedPerks.filter(k => PERKS[k])), alloc: state.profile.alloc.slice(), pots: [null, null] });
@@ -213,16 +214,20 @@ function renderOut() {
       '<p class="note">Choose a goal on the left and press <b>Find the best build</b>. The result lists the build, how it compares with this one, what each change is worth, and which items or perks outside your restrictions would help most.</p></section>';
     return;
   }
-  if (res.error) { out.innerHTML = '<p class="note err">' + esc(res.error) + '</p>'; return; }
+  out.innerHTML = resultHtml(res);
+}
+function resultHtml(res) {
+  if (res.error) return '<p class="note err">' + esc(res.error) + '</p>';
+  const p = state.profile, isPvp = res.goal === 'pvp';
   const G = GOALS[res.goal], W = res.winner, B = res.baseline, gain = B && B.score > 0 ? W.score / B.score - 1 : null;
   const spread = W.rs.map(x => x.score), noise = (Math.max.apply(null, spread) - Math.min.apply(null, spread)) / (W.score || 1);
   const same = res.baselineIsWinner, small = !same && gain !== null && gain < Math.max(0.03, noise / 2);
   let h = '';
-  h += '<section class="blk"><div class="verdict"><div class="k"><span class="eyebrow">' + esc(G.label) + ' · best found</span><span class="big num">' + G.fmt(W.score) + '</span><span class="small muted">' + esc(G.unit) + ', four runs from ' +
-    G.fmt(Math.min.apply(null, spread)) + ' to ' + G.fmt(Math.max.apply(null, spread)) + '</span></div>' +
+  h += '<section class="blk"><div class="verdict"><div class="k"><span class="eyebrow">' + esc(G.label) + ' · best found</span><span class="big num">' + G.fmt(W.score) + '</span><span class="small muted">' + esc(G.unit) + (isPvp ? '; worst matchup ' + G.fmt(W.rs[0].r.min) + ', defending ' + G.fmt(W.rs[0].r.defMean) : ', four runs from ' +
+    G.fmt(Math.min.apply(null, spread)) + ' to ' + G.fmt(Math.max.apply(null, spread))) + '</span></div>' +
     (B ? '<div class="k"><span class="eyebrow">Your equipped build</span><span class="big num">' + G.fmt(B.score) + '</span><span class="small ' + (same || small ? 'muted' : 'good') + '">' +
       (same ? 'already the best found' : small ? pct(gain) + ', inside run-to-run noise' : pct(gain) + ' with the changes below') + '</span></div>' : '') +
-    '<div class="k small muted"><span>' + res.sims.toLocaleString('en-US') + ' simulations in ' + Math.round(res.seconds) + ' s</span><span>finalists: 4 seeds × ' + res.HF + ' game-hours from wave ' + res.start.startWave + '</span><span>' + esc(res.depth.label) + ' depth' + (res.stopped ? ', stopped early' : res.converged ? ', search converged' : ', pass limit reached') + '</span></div></div>';
+    '<div class="k small muted"><span>' + res.sims.toLocaleString('en-US') + ' simulations in ' + Math.round(res.seconds) + ' s</span>' + (isPvp ? '<span>finalists: 1,500 fights against each of ' + res.cfg.opps.length + ' opponents</span>' : '<span>finalists: 4 seeds × ' + res.HF + ' game-hours from wave ' + res.start.startWave + '</span>') + '<span>' + esc(res.depth.label) + ' depth' + (res.stopped ? ', stopped early' : res.converged ? ', search converged' : ', pass limit reached') + '</span></div></div>';
   if (same) h += '<p class="note">Nothing allowed by your restrictions beat what you are wearing by more than 1.5%. Loosen a restriction, or look at the upgrade list below.</p>';
   else if (small) h += '<p class="note">The best build found is within noise of your equipped one. Swapping is optional.</p>';
   h += '</section>';
@@ -241,18 +246,18 @@ function renderOut() {
   }
   h += '<div class="grid2"><div><h3>What each perk contributes</h3>' + hbars(res.perkWorth.map(x => ({ label: esc(PERKS[x.perk].name), v: 1 - x.without / (W.score || 1), tip: 'Without it: ' + G.fmt(x.without) })), v => pct(v).replace('+', '')) +
     '<p class="small muted">Share of the score lost when that slot is left empty.</p></div>' +
-    '<div><h3>How it fights</h3>' + fightStory(W.rs, res.goal) + '</div></div>';
-  h += waveCharts(W.rs);
+    (isPvp ? '' : '<div><h3>How it fights</h3>' + fightStory(W.rs, res.goal) + '</div>') + '</div>';
+  if (!isPvp) h += waveCharts(W.rs);
   if (res.goal === 'push') h += '<h3>How far and how fast</h3>' + pushTable(W.rs, res);
   if (res.goal === 'ascended') { const a = mean(W.rs, r => r.asc); h += '<p class="note">' + (a > 0 ? 'One Ascended every <b>' + hrs(1 / a) + '</b> of real time on average (' + f1(mean(W.rs, r => r.waves_h16)) + ' waves/h on 16-39 at 0.4%, ' + f1(mean(W.rs, r => r.waves_h40)) + ' waves/h on 40+ at 1%). A specific Ascended is 1 in 15, so expect about ' + hrs(15 / a) + ' for one named item.' : 'This build finishes no waves between 16 and your record, so it earns no reclear rolls.') + '</p>'; }
-  h += '<h3>Loot and income</h3>' + lootTable(W.rs);
+  if (isPvp) h += matchupTable(res); else h += '<h3>Loot and income</h3>' + lootTable(W.rs);
   const altRows = [];
   for (const pos of [0, 1, 2, 'w', 5, 6, 'k', 'a', 'p']) {
     const a = res.alts[pos]; if (!a) continue;
     const tops = a.top.filter(t => LBP.keyOf(t.build) !== LBP.keyOf(W.build)).slice(0, 3);
     tops.forEach((t, i) => { const d = diffBuild(W.build, t.build); altRows.push('<tr><td class="muted">' + (i ? '' : (typeof pos === 'number' ? POS_NAME[pos] : pos === 'w' ? 'Weapons' : pos === 'k' ? 'Perks' : pos === 'a' ? 'Stat points' : 'Potions') + ' <span class="small">(' + a.tested + ' tried)</span>') + '</td><td>' + (d.join('<br>') || 'same') + '</td><td class="n">' + pct(t.score / (a.ref || 1) - 1) + '</td></tr>'); });
   }
-  if (altRows.length) h += '<details><summary><b>Runner-ups in each slot</b> <span class="small muted">the closest alternatives the search rejected</span></summary><div class="tw" style="margin-top:8px"><table><thead><tr><th>Slot</th><th>Alternative</th><th class="n">vs the build at that step</th></tr></thead><tbody>' + altRows.join('') + '</tbody></table></div><p class="small muted">Search-stage scores (two seeds, ' + res.H + ' game-hours), so differences under about 3% are noise.</p></details>';
+  if (altRows.length) h += '<details><summary><b>Runner-ups in each slot</b> <span class="small muted">the closest alternatives the search rejected</span></summary><div class="tw" style="margin-top:8px"><table><thead><tr><th>Slot</th><th>Alternative</th><th class="n">vs the build at that step</th></tr></thead><tbody>' + altRows.join('') + '</tbody></table></div><p class="small muted">Search-stage scores (' + (isPvp ? '300 fights per opponent' : 'two seeds, ' + res.H + ' game-hours') + '), so differences under about 3% are noise.</p></details>';
   h += '</section>';
 
   /* what to chase */
@@ -267,8 +272,8 @@ function renderOut() {
   } else if (!res.stopped) h += '<section class="blk"><h2>What to farm or buy next</h2><p class="note">No single item or perk from outside your restrictions improves this build. ' + (res.cfg.itemSource === 'all' && res.cfg.perkSource === 'all' ? 'You searched with everything allowed.' : 'Try the search with "Everything in the game" to see whether a multi-item change does.') + '</p></section>';
 
   /* other finalists */
-  if (res.finalists.length > 1) h += '<section class="blk"><h2>Other builds the search ended on</h2><div class="tw"><table><thead><tr><th class="n">Score</th><th>Differences from the recommended build</th><th class="n">Mean wave</th><th class="n">Kills/h</th><th class="n">Deaths/h</th></tr></thead><tbody>' +
-    res.finalists.map(f => '<tr><td class="n">' + G.fmt(f.score) + '</td><td>' + (f === W ? '<b>Recommended</b>' : (f === B ? '<span class="pill">equipped now</span> ' : '') + (diffBuild(W.build, f.build).join('<br>') || 'same')) + '</td><td class="n">' + f1(mean(f.rs, r => r.meanwave)) + '</td><td class="n">' + f0(mean(f.rs, r => r.kills_h)) + '</td><td class="n">' + f1(mean(f.rs, r => r.deaths_rh)) + '</td></tr>').join('') + '</tbody></table></div></section>';
+  if (res.finalists.length > 1) h += '<section class="blk"><h2>Other builds the search ended on</h2><div class="tw"><table><thead><tr><th class="n">Score</th><th>Differences from the recommended build</th>' + (isPvp ? '<th class="n">Worst matchup</th><th class="n">Defending</th>' : '<th class="n">Mean wave</th><th class="n">Kills/h</th><th class="n">Deaths/h</th>') + '</tr></thead><tbody>' +
+    res.finalists.map(f => '<tr><td class="n">' + G.fmt(f.score) + '</td><td>' + (f === W ? '<b>Recommended</b>' : (f === B ? '<span class="pill">equipped now</span> ' : '') + (diffBuild(W.build, f.build).join('<br>') || 'same')) + '</td>' + (isPvp ? '<td class="n">' + G.fmt(f.rs[0].r.min) + '</td><td class="n">' + G.fmt(f.rs[0].r.defMean) + '</td>' : '<td class="n">' + f1(mean(f.rs, r => r.meanwave)) + '</td><td class="n">' + f0(mean(f.rs, r => r.kills_h)) + '</td><td class="n">' + f1(mean(f.rs, r => r.deaths_rh)) + '</td>') + '</tr>').join('') + '</tbody></table></div></section>';
 
   /* log + caveats */
   h += '<section class="blk"><details><summary><b>Search log</b> <span class="small muted">every swap the search accepted</span></summary>' + res.log.map(l => '<p style="margin-top:8px"><b>From ' + esc(l.start) + '</b> (' + G.fmt(l.steps[0].score) + ')' + (l.converged ? '' : ' <span class="small muted">pass limit reached</span>') + '</p><ol class="small" style="margin:4px 0">' +
@@ -276,11 +281,13 @@ function renderOut() {
   const cav = [];
   const unp = W.rs[0].r.unparsed || []; if (unp.length) cav.push('Item effects the model ignores in this build: ' + unp.map(esc).join('; ') + '.');
   if (p.ownedPerks.some(k => LB.UNMODELLED_PERKS[k])) cav.push('You own ' + p.ownedPerks.filter(k => LB.UNMODELLED_PERKS[k]).map(k => LB.UNMODELLED_PERKS[k]).join(' and ') + ', which the model does not cover.');
-  cav.push('Per-hour figures assume the pace correction you set (' + res.cfg.pace + 'x). The raw model runs faster than the game, so real rates are lower; rankings hold.');
+  if (isPvp) { cav.push('PvP win rates from this model are too high, especially for Mythic and Ascended builds. Use them to rank builds and spot bad matchups, not as a forecast.');
+    cav.push('Opponent perks and stat points are guesses fitted to one replay each; opponents change gear, and matchmaking can pair you with players who are not in this pool.'); }
+  else cav.push('Per-hour figures assume the pace correction you set (' + res.cfg.pace + 'x). The raw model runs faster than the game, so real rates are lower; rankings hold.');
   if (res.goal === 'push') cav.push('Push ceilings from this model have been a few waves pessimistic at the wall with Immolation and optimistic at the very top end.');
   if (res.goal === 'bloodmarks') cav.push('The Bloodmark figure counts every drop as dismantled and uses your stated PvP win rate (' + Math.round(res.cfg.pvpWin * 100) + '%); PvP fights are not simulated.');
   h += '<p class="eyebrow" style="margin-top:10px">Limits of this result</p><ul class="small muted" style="margin:0;padding-left:20px">' + cav.map(c => '<li>' + c + '</li>').join('') + '</ul></section>';
-  out.innerHTML = h;
+  return h;
 }
 
 /* ------------------------------------------------------------------ compare */
@@ -335,7 +342,76 @@ function renderCmpOut() {
   $('cmpOut').innerHTML = h;
 }
 
+/* ------------------------------------------------------------------ PvP */
+const oppSt = o => o.st ? 'HP ' + f0(o.st.hp) + ' · ATK ' + f0(o.st.atk) + ' · DEF ' + f0(o.st.dfn) + ' · CRIT ' + f0(Math.min(o.st.crit, 75)) + ' · PARRY ' + f0(o.st.par) : '';
+function matchupTable(res) {
+  const W = res.winner.rs[0].r, B = res.baseline ? res.baseline.rs[0].r : null, info = res.cfg.oppInfo, pc = v => (v * 100).toFixed(0) + '%';
+  const order = info.map((o, i) => i).sort((a, b) => W.wins[a] - W.wins[b]);
+  const cls = v => v < 0.4 ? 'bad' : v < 0.6 ? 'warn' : '';
+  return '<h3>Matchups, worst first</h3><div class="tw"><table><thead><tr><th>Opponent</th><th>Their build as modelled</th>' + (B && !res.baselineIsWinner ? '<th class="n">Equipped, attacking</th>' : '') +
+    '<th class="n">Recommended, attacking</th><th class="n">Recommended, defending</th><th class="n">Fight length</th></tr></thead><tbody>' +
+    order.map(i => '<tr><td><b>' + esc(info[i].name) + '</b><div class="small muted">' + esc(info[i].src) + '</div></td><td class="small">' + esc(oppSt(info[i])) + '<div class="muted">' + esc(info[i].perkText) + '</div></td>' +
+      (B && !res.baselineIsWinner ? '<td class="n ' + cls(B.wins[i]) + '">' + pc(B.wins[i]) + '</td>' : '') + '<td class="n ' + cls(W.wins[i]) + '">' + pc(W.wins[i]) + '</td><td class="n ' + cls(W.def[i]) + '">' + pc(W.def[i]) + '</td><td class="n">' + f0(W.duels[i].turns) + ' swings</td></tr>').join('') +
+    '</tbody></table></div><p class="small muted">Attacking = you swing first with half your on-kill damage stacks, as when your auto-PvP fires. Defending = they swing first and you have no stacks, as when others challenge your snapshot.</p>';
+}
+function renderOpps() {
+  const rows = state.opps.map((o, i) => '<tr><td><input type="checkbox" id="opp' + i + '" data-i="' + i + '"' + (o.on ? ' checked' : '') + ' aria-label="Include ' + esc(o.name) + '"></td><td><b>' + esc(o.name) + '</b><div class="small muted">' + esc(o.src) + '</div></td>' +
+    '<td class="small">' + o.spec.names.map(n => n ? esc(n) : '(unknown item)').join(' · ') + '</td><td class="small">' + esc(oppSt(o)) + '<div class="muted">' + esc(o.perkText) + '</div></td></tr>').join('');
+  $('pvpOpps').innerHTML = '<table><thead><tr><th>Use</th><th>Opponent</th><th>Gear</th><th>Stats and perks as modelled</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+function defaultOpps() {
+  return LBP.ARCHETYPES.map(a => ({ name: a.name, src: 'Generic archetype: ' + a.note, on: true, spec: { names: a.names, perks: a.perks, stats: a.stats }, st: a.stats,
+    perkText: 'Assumed perks: ' + a.perks.map(k => PERKS[k].name).join(' + ') }));
+}
+async function loadReplays(files) {
+  if (state.running) return; const p = state.profile, reps = []; let badN = 0;
+  for (const f of files) { try { const r = LBP.parseReplay(await f.text()); if (!r.friendly && r.names.filter(Boolean).length >= 5) reps.push(r); else badN++; } catch (e) { badN++; } }
+  if (!reps.length) { $('pvpMsg').textContent = 'None of those files were PvP replays.'; return; }
+  const latest = new Map(); reps.sort((a, b) => (a.ticks < b.ticks ? -1 : 1)).forEach(r => latest.set(r.name, r));
+  const list = Array.from(latest.values());
+  state.running = true; $('pvpMsg').textContent = 'Fitting ' + list.length + ' opponents from their replays…';
+  try {
+    const fits = await Pool.evalJobs(list.map(r => LBP.fitJob(p, r)));
+    state.opps = state.opps.filter(o => !o.replay);
+    list.forEach((r, i) => { const f = fits[i]; if (!f || f.failed) return;
+      state.opps.push({ name: r.name, replay: true, on: true, src: 'Replay: you ' + (r.won ? 'won' : 'lost') + ' in ' + r.turns + ' swings (model gives your replay build ' + Math.round(f.simWin * 100) + '%)',
+        spec: { names: r.names, perks: f.perks, alloc: f.alloc }, st: f.st, perkText: 'Guessed perks: ' + (f.perks.map(k => PERKS[k].name).join(' + ') || 'none found') + ' · points ' + allocText(f.alloc) }); });
+    const n = state.opps.filter(o => o.replay).length, exp = fits.reduce((a, f) => a + (f && f.simWin || 0), 0);
+    $('pvpMsg').textContent = n + ' opponents added' + (badN ? ', ' + badN + ' files skipped' : '') + '. Check on the fit: the model expects ' + exp.toFixed(1) + ' wins from these fights, you had ' + list.filter(r => r.won).length + '.';
+  } catch (e) { $('pvpMsg').textContent = e.message; }
+  state.running = false; renderOpps();
+}
+async function runPvp() {
+  if (state.running) return;
+  const p = state.profile, cfg = cfgFromForm(), on = state.opps.filter(o => o.on);
+  if (!on.length) { $('pvpMsg').textContent = 'Tick at least one opponent.'; return; }
+  Object.assign(cfg, { goal: 'pvp', potMode: 'none', pots: [], opps: on.map(o => o.spec), robust: $('pvpScore').value === 'robust', depth: $('pvpDepth').value,
+    oppInfo: on.map(o => ({ name: o.name, src: o.src, st: o.st, perkText: o.perkText })) });
+  const P = LBP.makePools(p, cfg), D = LBP.DEPTH[cfg.depth], np = P.pool[3].length;
+  const est = D.starts * (P.pool[0].length + P.pool[1].length + P.pool[2].length + P.pool[4].length + P.pool[5].length + (np * (np + 1) / 2 <= D.pairLimit ? np * (np + 1) / 2 : 2 * np) + P.nslots * P.perks.length + (cfg.alloc === 'free' ? 40 : 0)) * 1.8 + 250;
+  state.running = true; state.cancel = false; $('pvpRun').disabled = true; $('pvpStop').hidden = false; $('pvpProgress').hidden = false;
+  const t0 = performance.now(); let stage = 'Starting';
+  const tick = pr => { if (pr.stage) stage = pr.stage; $('pvpBar').style.width = Math.min(98, pr.done / est * 100).toFixed(1) + '%';
+    $('pvpText').textContent = stage + ' · ' + pr.done.toLocaleString('en-US') + ' builds tested · ' + Math.round((performance.now() - t0) / 1000) + ' s'; };
+  let res;
+  try { res = await LBP.optimise(p, cfg, Pool.evalJobs, tick, () => state.cancel); res.seconds = (performance.now() - t0) / 1000; } catch (e) { res = { error: e.message }; }
+  state.running = false; $('pvpRun').disabled = false; $('pvpStop').hidden = true; $('pvpProgress').hidden = true; $('pvpBar').style.width = '0';
+  $('pvpOut').innerHTML = resultHtml(res);
+}
+function pvpRestr() {
+  const c = cfgFromForm();
+  $('pvpRestr').textContent = 'Using the restrictions from the first tab: ' + ({ owned: 'only gear you own', market: 'owned + marketplace gear', all: 'every item in the game' })[c.itemSource] + ', ' +
+    (c.perkSource === 'owned' ? 'perks you own' : 'all perks') + ', ' + c.perkSlots + ' perk slots, ' + (c.alloc === 'save' ? 'current stat points' : 'free respec') +
+    (Object.keys(c.lock).length ? ', ' + Object.keys(c.lock).length + ' locked slots' : '') + (c.bannedItems.length ? ', ' + c.bannedItems.length + ' excluded items' : '') + '. Potions do not work in PvP.';
+}
+
 /* ------------------------------------------------------------------ wiring */
+$('pvpLoad').addEventListener('click', () => $('fileReplays').click());
+$('fileReplays').addEventListener('change', e => { const fl = Array.from(e.target.files); e.target.value = ''; if (fl.length) loadReplays(fl); });
+$('pvpOpps').addEventListener('change', e => { const i = e.target.dataset.i; if (i !== undefined) state.opps[+i].on = e.target.checked; });
+$('pvpRun').addEventListener('click', runPvp);
+$('pvpStop').addEventListener('click', () => { state.cancel = true; });
+
 $('goals').innerHTML = Object.keys(GOALS).map((g, i) => '<label class="opt"><input type="radio" name="goal" id="goal-' + g + '" value="' + g + '"' + (i ? '' : ' checked') + '><span>' + esc(GOALS[g].label) + '<span class="d">Scored by ' + esc(GOALS[g].unit) + '</span></span></label>').join('');
 $('itemList').innerHTML = LB.ALL.filter(i => i.rarity >= 2).map(i => '<option value="' + esc(i.itemName) + '">').join('');
 $('form').addEventListener('submit', e => { e.preventDefault(); run(); });
@@ -356,9 +432,10 @@ $('banAdd').addEventListener('click', () => { const v = $('banInput').value.trim
 $('banChips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b) { state.bans.splice(+b.dataset.i, 1); renderBans(); } });
 document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 function showTab(t) {
-  if (['optimise', 'compare', 'model'].indexOf(t) < 0) t = 'optimise';
+  if (['optimise', 'compare', 'pvp', 'model'].indexOf(t) < 0) t = 'optimise';
   document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === t ? 'true' : 'false'));
-  ['optimise', 'compare', 'model'].forEach(x => { $('pane-' + x).hidden = x !== t; });
+  ['optimise', 'compare', 'pvp', 'model'].forEach(x => { $('pane-' + x).hidden = x !== t; });
+  if (t === 'pvp') pvpRestr();
   try { history.replaceState(null, '', '#' + t); } catch (e) { /* not essential */ }
 }
 $('cmpAddEq').addEventListener('click', () => { state.cmp.push(equippedBuild('Equipped ' + (state.cmp.length + 1))); renderCmpCards(); });

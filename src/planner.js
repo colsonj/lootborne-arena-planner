@@ -96,7 +96,8 @@ function makePools(profile, cfg) {
     pool.push(top.map(it => it.itemName).sort());
   }
   const banP = new Set(cfg.bannedPerks || []);
-  const perks = (cfg.perkSource === 'owned' ? profile.ownedPerks.filter(k => PERKS[k]) : PERK_IDS).filter(k => !banP.has(k)).slice().sort((a, b) => a - b);
+  const basePerks = cfg.goal === 'pvp' ? LB.PVP_PERK_IDS : PERK_IDS;
+  const perks = (cfg.perkSource === 'owned' ? profile.ownedPerks.filter(k => basePerks.indexOf(k) >= 0) : basePerks).filter(k => !banP.has(k)).slice().sort((a, b) => a - b);
   const nslots = Math.max(1, Math.min(5, cfg.perkSlots || profile.perkSlots || 5));
   let pots = [];
   if (cfg.potMode === 'owned') pots = POTION_NAMES.filter(n => profile.ownedPots[n]);
@@ -144,6 +145,12 @@ const PRESETS = {
     { names: ["Crown of the Undying", "Remains of Sbard the Ugly", "Mawfire Cummerbund", "Sword of Divine Justice", "Frirekr Toto's Aegis", "Ring of Final Ascension", "Dawnguard Pendant"], perks: [10, 28, 17, 29, 30], alloc: [106, 0, 175, 0, 14] },
     { names: ["Supreme Assassin's Hood", "Hollow Night Vestments", "The Hollow Coil", "Grieffang", "Grieffang", "Frozen Core Ring", "Hallowed Icon"], perks: [10, 29, 28, 17, 11], alloc: [0, 0, 295, 0, 0] },
   ],
+  pvp: [
+    { names: ["Supreme Assassin's Hood", "Ebonwake Cuirass", "Echo-Wane Belt", "Frost Colossus Shield", "Grieffang", "Drowned Moon Seal", "Riposte of the Dark One"], perks: [4, 10, 11, 22, 29], alloc: [0, 0, 220, 0, 75] },
+    { names: ["Horns of Death's Assistant", "Pyrestorm Bastion", "The World's Serpent", "Sword of Divine Justice", "Emberdoom Greatsword", "Ring of Final Ascension", "Dark Grief Knot"], perks: [6, 10, 22, 27, 29], alloc: [100, 0, 195, 0, 0] },
+    { names: ["Horns of Death's Assistant", "Simon of Vineyards' Vest", "Cincture of the Three Stars", "Grieffang", "Grieffang", "Hidden Axis Seal", "Dark Grief Knot"], perks: [6, 14, 22, 25, 29], alloc: [295, 0, 0, 0, 0] },
+    { names: ["Crown of the Undying", "Simon of Vineyards' Vest", "The World's Serpent", "Grieffang", "Sword of Divine Justice", "The Smiling Martyr's Halo", "Dawnguard Pendant"], perks: [10, 14, 28, 29, 30], alloc: [0, 0, 195, 0, 100] },
+  ],
   glass: [
     { names: ["Frog Mouth Helm of Ire", "Simon of Vineyards' Vest", "Sash of Death Sentence", "Bern the Bear's Scythe", "Sword of Divine Justice", "Farn Ahb'Ahzz's Trial", "Essence of the Abyss"], perks: [22, 21, 6, 29, 11], alloc: [150, 0, 120, 0, 25] },
     { names: ["Frog Mouth Helm of Ire", "Fire Titan Cuirass", "The World's Serpent", "Bern the Bear's Scythe", "Mace of the Avalanche", "Ring of Final Ascension", "Essence of the Abyss"], perks: [22, 11, 28, 4, 6], alloc: [31, 0, 250, 0, 14] },
@@ -156,7 +163,8 @@ const DEPTH = {
   standard: { h: 80, starts: 3, passes: 3, pairLimit: 420, top: 6, label: 'Standard' },
   thorough: { h: 160, starts: 5, passes: 4, pairLimit: 5000, top: 8, label: 'Thorough' },
 };
-const SCREEN_SEEDS = [3], CONFIRM_SEEDS = [3, 5], FINAL_SEEDS = [11, 12, 13, 14];
+const A_SCREEN = [3], A_CONFIRM = [3, 5], FINAL_SEEDS = [11, 12, 13, 14];
+const P_SCREEN = [5], P_CONFIRM = [7], P_FINAL = [11], PVP_N = { screen: 60, confirm: 300, final: 1500 };
 
 function simOpts(profile, cfg, h, seed) {
   return { plvl: profile.level, budgetH: h, seed, startWave: Math.max(1, cfg.startWave || profile.record), bossmask: cfg.bossmask === undefined ? profile.bossmask : cfg.bossmask,
@@ -169,18 +177,22 @@ class Cancelled extends Error {}
 /* ------------------------------------------------------------------ search */
 async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
   const P = makePools(profile, cfg), D = DEPTH[cfg.depth] || DEPTH.standard, goal = cfg.goal, lock = cfg.lock || {};
+  const isPvp = goal === 'pvp', SCREEN_SEEDS = isPvp ? P_SCREEN : A_SCREEN, CONFIRM_SEEDS = isPvp ? P_CONFIRM : A_CONFIRM, FIN_SEEDS = isPvp ? P_FINAL : FINAL_SEEDS;
   const H = goalHours(cfg, D.h), HF = H * 3;
+  const pvpN = seeds => seeds === SCREEN_SEEDS ? PVP_N.screen : seeds === CONFIRM_SEEDS ? PVP_N.confirm : PVP_N.final;
+  const beats = (a, b) => isPvp ? a > b + 0.006 : a > b * 1.015 + 1e-9;
   const cache = new Map(); let done = 0; const log = [];
   const prog = (stage) => { if (onProgress) onProgress({ stage, done }); };
   async function ev(builds, seeds, h, detail) {
     const jobs = [], slots = [];
     builds.forEach((b, bi) => seeds.forEach(s => {
       const ck = keyOf(b) + '@' + s + '@' + h + (detail ? 'd' : '');
-      if (!cache.has(ck)) { jobs.push({ build: b, o: simOpts(profile, cfg, h, s), goal, detail: !!detail }); slots.push(ck); }
+      if (!cache.has(ck)) { jobs.push(isPvp ? { type: 'pvp', build: b, opps: cfg.opps, n: pvpN(seeds), seed: s, robust: !!cfg.robust, detail: !!detail } : { build: b, o: simOpts(profile, cfg, h, s), goal, detail: !!detail }); slots.push(ck); }
     }));
-    for (let i = 0; i < jobs.length; i += 256) {
+    const batch = isPvp ? 48 : 256;
+    for (let i = 0; i < jobs.length; i += batch) {
       if (isCancelled && isCancelled()) throw new Cancelled();
-      const part = await evalJobs(jobs.slice(i, i + 256));
+      const part = await evalJobs(jobs.slice(i, i + batch));
       part.forEach((r, j) => cache.set(slots[i + j], r)); done += part.length; prog();
     }
     return builds.map(b => {
@@ -256,7 +268,7 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
         const conf = (await ev(screened.map(x => x.build), CONFIRM_SEEDS, H)).sort(better);
         alts[pos] = { tested: cand.length, top: conf.slice(0, 4).map(x => ({ build: x.build, score: x.score })), ref: cur.score };
         const best = conf[0];
-        if (best && best.score > cur.score * 1.015 + 1e-9) {
+        if (best && beats(best.score, cur.score)) {
           steps.push({ what: posLabel(pos), from: cur.build, to: best.build, before: cur.score, score: best.score, pass: pass + 1 });
           cur = best; changed = true;
         }
@@ -268,7 +280,7 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
 
   /* starting points: what is equipped now, then the known archetypes for the goal, adapted to the restrictions */
   const equippedBuild = adapt({ names: profile.equipped, perks: profile.equippedPerks, alloc: profile.alloc, pots: cfg.potMode === 'fixed' ? cfg.pots : [] }, P, cfg, profile);
-  const arche = goal === 'push' ? PRESETS.tank.concat(PRESETS.glass.slice(0, 1)) : PRESETS.glass.concat(PRESETS.tank.slice(1, 2));
+  const arche = isPvp ? PRESETS.pvp : goal === 'push' ? PRESETS.tank.concat(PRESETS.glass.slice(0, 1)) : PRESETS.glass.concat(PRESETS.tank.slice(1, 2));
   const starts = []; const seenStart = new Set();
   const addStart = (b, label) => { const a = adapt(b, P, cfg, profile); const k = keyOf(a); if (!seenStart.has(k) && a.names.some(Boolean)) { seenStart.add(k); starts.push({ build: a, label }); } };
   addStart(equippedBuild, 'your equipped build');
@@ -295,7 +307,7 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
   if (!uniq.has(baseKey)) finalists.push(equippedBuild);
   prog('Final check of ' + finalists.length + ' builds on fresh seeds');
   const cancelSave = isCancelled; isCancelled = null;        // the remaining stages are short; let them finish
-  const fin = (await ev(finalists, FINAL_SEEDS, HF, true)).sort(better);
+  const fin = (await ev(finalists, FIN_SEEDS, HF, true)).sort(better);
   const winner = fin[0], baseline = fin.find(f => keyOf(f.build) === baseKey);
   const wOpt = uniq.get(keyOf(winner.build));
 
@@ -318,13 +330,13 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
     if (winner.build.pots.slice().sort().join() !== equippedBuild.pots.slice().sort().join())
       variants.push({ label: 'Potions', from: equippedBuild.pots.join(' + ') || 'none', to: winner.build.pots.join(' + ') || 'none', build: Object.assign({}, winner.build, { pots: equippedBuild.pots }) });
     prog('Explaining each change');
-    const rs = await ev(variants.map(v => v.build), FINAL_SEEDS, HF);
+    const rs = await ev(variants.map(v => v.build), FIN_SEEDS, HF);
     variants.forEach((v, i) => revert.push({ label: v.label, from: v.from, to: v.to, without: rs[i].score }));
   }
   /* what each perk is worth: the build with that slot empty */
   prog('Measuring each perk');
   const perkVars = winner.build.perks.map(k => Object.assign({}, winner.build, { perks: winner.build.perks.filter(x => x !== k) }));
-  const perkWorth = (await ev(perkVars, FINAL_SEEDS, HF)).map((r, i) => ({ perk: winner.build.perks[i], without: r.score }));
+  const perkWorth = (await ev(perkVars, FIN_SEEDS, HF)).map((r, i) => ({ perk: winner.build.perks[i], without: r.score }));
 
   /* what to chase: single swaps from outside the allowed pools */
   const targets = { items: [], perks: [] };
@@ -340,7 +352,7 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
         const n = winner.build.names.slice(); n[pos] = x; cands.push({ kind: 'item', pos, item: x, build: Object.assign({}, winner.build, { names: n }) });
       }
     }
-    for (const k of PERK_IDS) {
+    for (const k of wide.perks) {
       if (P.perks.indexOf(k) >= 0 || (cfg.bannedPerks || []).indexOf(k) >= 0) continue;
       for (let i = 0; i < winner.build.perks.length; i++) {
         const K = winner.build.perks.slice(); const out = K[i]; K[i] = k; K.sort((x, y) => x - y);
@@ -356,9 +368,9 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
       const bestOf = new Map();                                   // best swap per item / perk
       for (const x of order) { const c = cands[x.i], id = c.kind + ':' + (c.item || c.perk); if (!bestOf.has(id)) bestOf.set(id, c); }
       const short = Array.from(bestOf.values()).slice(0, 16);
-      const conf = await ev(short.map(c => c.build), FINAL_SEEDS, HF);
+      const conf = await ev(short.map(c => c.build), FIN_SEEDS, HF);
       short.forEach((c, i) => {
-        const gain = conf[i].score / (winner.score || 1e-12) - 1; if (!(conf[i].score > winner.score)) return;
+        const gain = conf[i].score / (winner.score || 1e-12) - 1; if (!(gain > 0.01)) return;
         if (c.kind === 'item') targets.items.push({ item: c.item, pos: c.pos, replaces: winner.build.names[c.pos], score: conf[i].score, gain, source: sourceOf(BYNAME[c.item], profile) });
         else targets.perks.push({ perk: c.perk, replaces: c.replaces, score: conf[i].score, gain, cost: PERKS[c.perk].cost });
       });
@@ -372,6 +384,35 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
            poolSizes: P.pool.map(p => p.length), perkPool: P.perks, nslots: P.nslots, start: simOpts(profile, cfg, HF, 0) };
 }
 
+/* ------------------------------------------------------------------ PvP opponents */
+/* Generic end-game opponents (gear + final stats as shown on profile cards), for players without replays and as a robustness check. */
+const ARCHETYPES = [
+  { name: 'High-HP bruiser', note: '2,000 HP, 340 ATK, low DEF', names: PRESETS.pvp[2].names, stats: { hp: 1997, atk: 341, dfn: 97.8, crit: 33.9, par: 20.6 }, perks: [14, 29] },
+  { name: 'Parry wall', note: 'DEF 330, PARRY 55%', names: PRESETS.pvp[3].names, stats: { hp: 1137, atk: 169, dfn: 329.4, crit: 24.5, par: 55 }, perks: [14, 29] },
+  { name: 'Balanced tank', note: '1,700 HP, DEF 200, PARRY 35%', names: ["Frozen Grin of Horror", "Ice Feathers of Lapis Lazuli", "The World's Serpent", "Sword of Divine Justice", "Bern the Bear's Scythe", "Ring of Final Ascension", "Dark Grief Knot"], stats: { hp: 1687, atk: 78, dfn: 203.9, crit: 39.3, par: 34.7 }, perks: [14, 29] },
+];
+function parseReplay(text) {
+  let d; try { d = JSON.parse(text); } catch (e) { throw new Error('not JSON'); }
+  if (!d || !d.opponent || !Array.isArray(d.turns) || !d.player) throw new Error('not a Lootborne replay');
+  const names = side => { const out = [null, null, null, null, null, null, null]; (side.equippedItems || []).forEach(it => { const pos = SAVE_SLOTS.indexOf(it.slotName); if (pos >= 0 && BYNAME[it.itemName]) out[pos] = it.itemName; }); return out; };
+  const TA = d.turns, T = TA.filter(t => !t.suddenDeath), mine = T.filter(t => t.playerAttacking), theirs = T.filter(t => !t.playerAttacking);
+  const ml = mine.filter(t => !t.parried), tl = theirs.filter(t => !t.parried), mhp = d.opponent.maxHp;
+  let lb = null, prev = mhp;
+  for (const t of TA) { if (t.playerAttacking && !t.parried && prev - t.damage <= 0 && t.hpEnemy > 0) lb = true; prev = t.hpEnemy; }
+  if (lb === null && d.playerWon) lb = false;
+  const plain = []; let pc = false;
+  for (const t of ml) { if (!t.crit && !pc && t.damage > 0) plain.push(t.damage); pc = t.crit; }
+  plain.sort((a, b) => a - b);
+  const sum = (a, f) => a.reduce((x, t) => x + f(t), 0);
+  const obs = { plain: plain.length ? plain[Math.floor(plain.length / 2)] : 0, n_plain: plain.length, n_my: mine.length, my_par: sum(mine, t => t.parried ? 1 : 0), my_land: ml.length,
+    my_dpl: sum(ml, t => t.damage) / Math.max(1, ml.length), n_th: theirs.length, th_par: sum(theirs, t => t.parried ? 1 : 0), th_land: tl.length,
+    th_dpl: sum(tl, t => t.damage) / Math.max(1, tl.length), th_crit: sum(tl, t => t.crit ? 1 : 0), lb };
+  return { name: String(d.opponent.name || 'Opponent'), level: d.opponent.level | 0 || 60, maxHp: mhp, won: !!d.playerWon, friendly: !!d.isFriendly, ticks: String(d.timestampTicks || ''),
+           names: names(d.opponent), myNames: names(d.player), turns: TA.length, obs };
+}
+const fitJob = (profile, rp) => ({ type: 'fit', obs: rp.obs, names: rp.names, maxHp: rp.maxHp, level: rp.level,
+  me: { names: rp.myNames, perks: profile.equippedPerks.filter(k => PERKS[k]), alloc: profile.alloc } });
+
 /* Plain comparison of hand-made builds: every goal metric for each. */
 async function compare(profile, builds, cfg, evalJobs) {
   const jobs = [];
@@ -380,6 +421,6 @@ async function compare(profile, builds, cfg, evalJobs) {
   return builds.map((b, i) => ({ build: b, rs: rs.slice(i * FINAL_SEEDS.length, (i + 1) * FINAL_SEEDS.length) }));
 }
 
-return { parseSave, exampleProfile, makePools, adapt, optimise, compare, keyOf, sourceOf, marketable, DEPTH, FINAL_SEEDS, PRESETS, simOpts, goalHours };
+return { ARCHETYPES, parseReplay, fitJob, parseSave, exampleProfile, makePools, adapt, optimise, compare, keyOf, sourceOf, marketable, DEPTH, FINAL_SEEDS, PRESETS, simOpts, goalHours };
 })(LB);
 if (typeof module !== 'undefined') module.exports = LBP;

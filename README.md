@@ -7,7 +7,7 @@ Single-page build simulator for the Eternal Arena. Open `index.html` in a browse
 - `src/app.js`, `src/page.html`, `src/style.css` — the page.
 - `node build.mjs` — writes `index.html` (stand-alone) and `dist/planner.html` (no document wrapper).
 - `python3 test/dump.py` — regenerates `src/data.js` and the reference cases from the Python / C tools
-  (`python3 test/dump.py data` for the catalogue only); `node test/parity.mjs` checks the port against them.
+  (`python3 test/dump.py data` for the catalogue only); `node test/parity.mjs` and `node test/pvpparity.mjs` check the arena and PvP ports against them.
 - `node test/search.mjs <save.json|-> <goal> <depth> <owned|market|all> [save|free]` — the search from the command line.
 
 Free hosting: `index.html` is one self-contained file, so any static host works (GitHub Pages, Cloudflare Pages,

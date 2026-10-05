@@ -24,6 +24,7 @@
   <nav class="tabs" role="tablist">
     <button role="tab" id="tab-optimise" aria-selected="true" data-tab="optimise" type="button">Find the best build</button>
     <button role="tab" id="tab-compare" aria-selected="false" data-tab="compare" type="button">Compare builds</button>
+    <button role="tab" id="tab-pvp" aria-selected="false" data-tab="pvp" type="button">PvP matchups</button>
     <button role="tab" id="tab-model" aria-selected="false" data-tab="model" type="button">How it works</button>
   </nav>
 
@@ -96,6 +97,39 @@
     </div>
   </main>
 
+  <main id="pane-pvp" hidden>
+    <div class="out">
+      <section class="blk">
+        <h2>PvP matchups</h2>
+        <p class="muted" style="max-width:72ch">There is no single best PvP build: the answer depends on who you fight. This tab finds the build that does best against a pool of opponents, shows the result per opponent, and tells you who still beats you. Load your replays to use the players you actually meet.</p>
+        <div class="row"><button class="btn" type="button" id="pvpLoad">Load replay files</button><input type="file" id="fileReplays" accept=".json,application/json" multiple hidden><span class="small" id="pvpMsg"></span></div>
+        <p class="small muted">Replay folder: <span class="num">%USERPROFILE%\AppData\LocalLow\Turbolento Games\Lootborne\Replays</span>. Select every file in it (the game keeps the last 15). Each opponent's gear is read from the replay; their perks and stat points are fitted to the swings. Replays stay in your browser.</p>
+        <div class="tw" id="pvpOpps"></div>
+      </section>
+      <section class="blk">
+        <div class="row">
+          <label class="small muted">Score by<select id="pvpScore"><option value="avg">Average win rate across the pool</option><option value="robust">Robust: average weighted toward the worst third</option></select></label>
+          <label class="small muted">Depth<select id="pvpDepth"><option value="quick">Quick</option><option value="standard">Standard</option><option value="thorough">Thorough</option></select></label>
+          <button class="btn primary" type="button" id="pvpRun">Find the best PvP build</button><button class="btn" type="button" id="pvpStop" hidden>Stop and show best so far</button>
+        </div>
+        <p class="small muted" id="pvpRestr"></p>
+        <div class="progress" id="pvpProgress" hidden><div class="bar"><i id="pvpBar"></i></div><div class="small muted" id="pvpText"></div></div>
+      </section>
+      <div id="pvpOut" class="out"></div>
+      <section class="blk note">
+        <h3>Limits of the PvP model</h3>
+        <ul class="small" style="margin:0;padding-left:20px">
+          <li><b>Win rates are too high.</b> For Mythic and Ascended builds the model has printed 98 to 100% where real results are lower. Use the ranking and the per-opponent table, not the percentage.</li>
+          <li><b>Opponents are estimates.</b> Their gear is exact, but perks and stat points are guessed from a single fight, using the perks and stat points in your save now. If you have respecced or changed perks since those fights, the guesses are worse.</li>
+          <li><b>The pool is small and dated.</b> At most 15 replays, each a snapshot. Players change gear, and matchmaking can pair you with builds that are not in the pool. A build tuned to this pool can lose to a different one; the robust score and the generic archetypes reduce that, they do not remove it.</li>
+          <li><b>Known stat gap.</b> On at least one gear set the in-game sheet showed about 20% more ATK and 10 more CRIT than this model computes, cause unknown. Your own damage may be understated.</li>
+          <li><b>Not modelled:</b> Mirror Echo, the PvP boss encounters, and long sudden-death fights (predicted poorly). Guardian Angel, Colossus Hunter and Coup de Grace do nothing in PvP and are left out.</li>
+          <li><b>Local search.</b> As on the first tab, a better build more than one swap away from every start can be missed.</li>
+        </ul>
+      </section>
+    </div>
+  </main>
+
   <main id="pane-model" hidden>
     <div class="prose">
       <h2>What the planner simulates</h2>
@@ -118,7 +152,8 @@
         <li>Potion effects for Rampart, Vigor, Fury and Bastion are modelled from their text. Armor Breaker, Sunder Oil and Executioner's Draught are not modelled.</li>
         <li>Mirror Echo and Rival's Calling are not modelled. A few rare item clauses (temporary HP buffs, DEF shred every N attacks) are ignored.</li>
         <li>It is a local search: a better build can exist that is more than one swap away from every start. Thorough depth and the "everything" setting reduce that risk.</li>
-        <li>Only the Eternal Arena is covered, not sector clears or PvP win rates.</li>
+        <li>Sector clears are not covered.</li>
+        <li>PvP: both sides use the same swing rules with every item effect and perk, no element bonus, reflect capped at 25%, and sudden death from swing 60. Win rates come out too high and opponents are fitted guesses; the PvP tab lists its limits in full.</li>
       </ul>
     </div>
   </main>

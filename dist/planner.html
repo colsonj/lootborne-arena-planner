@@ -129,6 +129,7 @@ td.n, th.n { text-align: right; white-space: nowrap; }
   <nav class="tabs" role="tablist">
     <button role="tab" id="tab-optimise" aria-selected="true" data-tab="optimise" type="button">Find the best build</button>
     <button role="tab" id="tab-compare" aria-selected="false" data-tab="compare" type="button">Compare builds</button>
+    <button role="tab" id="tab-pvp" aria-selected="false" data-tab="pvp" type="button">PvP matchups</button>
     <button role="tab" id="tab-model" aria-selected="false" data-tab="model" type="button">How it works</button>
   </nav>
 
@@ -201,6 +202,39 @@ td.n, th.n { text-align: right; white-space: nowrap; }
     </div>
   </main>
 
+  <main id="pane-pvp" hidden>
+    <div class="out">
+      <section class="blk">
+        <h2>PvP matchups</h2>
+        <p class="muted" style="max-width:72ch">There is no single best PvP build: the answer depends on who you fight. This tab finds the build that does best against a pool of opponents, shows the result per opponent, and tells you who still beats you. Load your replays to use the players you actually meet.</p>
+        <div class="row"><button class="btn" type="button" id="pvpLoad">Load replay files</button><input type="file" id="fileReplays" accept=".json,application/json" multiple hidden><span class="small" id="pvpMsg"></span></div>
+        <p class="small muted">Replay folder: <span class="num">%USERPROFILE%\AppData\LocalLow\Turbolento Games\Lootborne\Replays</span>. Select every file in it (the game keeps the last 15). Each opponent's gear is read from the replay; their perks and stat points are fitted to the swings. Replays stay in your browser.</p>
+        <div class="tw" id="pvpOpps"></div>
+      </section>
+      <section class="blk">
+        <div class="row">
+          <label class="small muted">Score by<select id="pvpScore"><option value="avg">Average win rate across the pool</option><option value="robust">Robust: average weighted toward the worst third</option></select></label>
+          <label class="small muted">Depth<select id="pvpDepth"><option value="quick">Quick</option><option value="standard">Standard</option><option value="thorough">Thorough</option></select></label>
+          <button class="btn primary" type="button" id="pvpRun">Find the best PvP build</button><button class="btn" type="button" id="pvpStop" hidden>Stop and show best so far</button>
+        </div>
+        <p class="small muted" id="pvpRestr"></p>
+        <div class="progress" id="pvpProgress" hidden><div class="bar"><i id="pvpBar"></i></div><div class="small muted" id="pvpText"></div></div>
+      </section>
+      <div id="pvpOut" class="out"></div>
+      <section class="blk note">
+        <h3>Limits of the PvP model</h3>
+        <ul class="small" style="margin:0;padding-left:20px">
+          <li><b>Win rates are too high.</b> For Mythic and Ascended builds the model has printed 98 to 100% where real results are lower. Use the ranking and the per-opponent table, not the percentage.</li>
+          <li><b>Opponents are estimates.</b> Their gear is exact, but perks and stat points are guessed from a single fight, using the perks and stat points in your save now. If you have respecced or changed perks since those fights, the guesses are worse.</li>
+          <li><b>The pool is small and dated.</b> At most 15 replays, each a snapshot. Players change gear, and matchmaking can pair you with builds that are not in the pool. A build tuned to this pool can lose to a different one; the robust score and the generic archetypes reduce that, they do not remove it.</li>
+          <li><b>Known stat gap.</b> On at least one gear set the in-game sheet showed about 20% more ATK and 10 more CRIT than this model computes, cause unknown. Your own damage may be understated.</li>
+          <li><b>Not modelled:</b> Mirror Echo, the PvP boss encounters, and long sudden-death fights (predicted poorly). Guardian Angel, Colossus Hunter and Coup de Grace do nothing in PvP and are left out.</li>
+          <li><b>Local search.</b> As on the first tab, a better build more than one swap away from every start can be missed.</li>
+        </ul>
+      </section>
+    </div>
+  </main>
+
   <main id="pane-model" hidden>
     <div class="prose">
       <h2>What the planner simulates</h2>
@@ -223,7 +257,8 @@ td.n, th.n { text-align: right; white-space: nowrap; }
         <li>Potion effects for Rampart, Vigor, Fury and Bastion are modelled from their text. Armor Breaker, Sunder Oil and Executioner's Draught are not modelled.</li>
         <li>Mirror Echo and Rival's Calling are not modelled. A few rare item clauses (temporary HP buffs, DEF shred every N attacks) are ignored.</li>
         <li>It is a local search: a better build can exist that is more than one swap away from every start. Thorough depth and the "everything" setting reduce that risk.</li>
-        <li>Only the Eternal Arena is covered, not sector clears or PvP win rates.</li>
+        <li>Sector clears are not covered.</li>
+        <li>PvP: both sides use the same swing rules with every item effect and perk, no element bonus, reflect capped at 25%, and sudden death from swing 60. Win rates come out too high and opponents are fitted guesses; the PvP tab lists its limits in full.</li>
       </ul>
     </div>
   </main>
@@ -276,6 +311,7 @@ const PERKS = {
   10: { name: 'Dragonhide', cost: 100, text: '+35% DEF, +15% max HP, -12% ATK.' },
   11: { name: 'Dying Fury', bit: 2, cost: 350, text: 'Below 40% HP: ATK x1.8.' },
   12: { name: 'Crimson Vow', bit: 4, cost: 180, text: 'Heal 3 HP per landed attack.' },
+  14: { name: "Rival's Calling", cost: 100, pvpOnly: true, pvp: { DMULT: 1.3 }, text: '+30% damage in PvP (its -5% in the arena is not modelled).' },
   13: { name: 'Reckless Abandon', cost: 350, x: { DMULT: 1.3, TMULT: 1.1 }, text: 'Deal x1.3 damage, take x1.1.' },
   15: { name: 'Aggression', cost: 100, text: '+6 ATK.' },
   16: { name: 'Guardian Angel', cost: 350, x: { ANGEL: 0.2 }, text: 'Entering a fight below 50% HP gives a shield of 20% max HP.' },
@@ -294,8 +330,9 @@ const PERKS = {
   30: { name: 'Instinctive Guard', cost: 350, text: '+0.5% DEF per point of PARRY (up to +27.5%).' },
   31: { name: 'Armor Piercer', bit: 16, cost: 350, text: 'Attacks ignore 35% of enemy PARRY and 35% of enemy DEF.' },
 };
-const PERK_IDS = Object.keys(PERKS).map(Number).sort((a, b) => a - b);
-const UNMODELLED_PERKS = { 14: "Rival's Calling", 26: 'Mirror Echo' };
+const PERK_IDS = Object.keys(PERKS).map(Number).filter(k => !PERKS[k].pvpOnly).sort((a, b) => a - b);
+const PVP_PERK_IDS = Object.keys(PERKS).map(Number).filter(k => k !== 16 && k !== 17 && k !== 24).sort((a, b) => a - b);
+const UNMODELLED_PERKS = { 26: 'Mirror Echo' };
 const SLOT_UNLOCK = [1, 10, 20, 40, 60];
 /* Potions: id from the save (ownedConsumableIds). kind: combat | loot | other. */
 const POTIONS = {
@@ -1036,6 +1073,295 @@ function loot(r, build, o) {
   return r;
 }
 
+
+/* ------------------------------------------------------------------ PvP (tools/pvpsim.c + pvp2.py) */
+const PVP_OFF = { CHUNT: 1, COUP: 1, ANGEL: 1 }, REFLECT_CAP = 0.25;
+const _FT = new Map();
+/* spec: { names[7], perks[], alloc[5] | stats{hp,atk,dfn,crit,par}, stacks } -> bound fighter */
+function fighter(spec) {
+  const key = JSON.stringify([spec.names, spec.perks, spec.alloc || null, spec.stats || null, spec.stacks || 0]);
+  let f = _FT.get(key); if (f) return f;
+  const K = (spec.perks || []).filter(k => PERKS[k]), g = gearOf(spec.names);
+  const st = spec.stats ? Object.assign({}, spec.stats) : totals(g, spec.alloc, K, []);
+  const p = new Float64Array(IDX.length);
+  for (const k in g.fx) p[I[k]] = g.fx[k];
+  p[I.HP] = st.hp; p[I.ATK] = st.atk; p[I.DFN] = st.dfn; p[I.CRIT] = st.crit; p[I.PAR] = st.par;
+  p[I.CAP] = K.indexOf(27) >= 0 ? 75 : CRIT_CAP;
+  for (const k of ['ea', 'ec', 'oc', 'op', 'fa', 'low', 'tb', 'cond']) p[I['N' + k.toUpperCase()]] = g[k].length;
+  let bits = 0;
+  for (const k of K) {
+    bits += PERKS[k].bit || 0; const x = Object.assign({}, PERKS[k].x || {}, PERKS[k].pvp || {});
+    for (const n in x) { if (PVP_OFF[n]) continue; p[I[n]] = ((n === 'DMULT' || n === 'TMULT') && p[I[n]]) ? p[I[n]] * x[n] : x[n]; }
+  }
+  p[I.PERKS] = bits;
+  if (spec.stacks && p[I.KILL_DMG] > 0) p[I.DMULT] = (p[I.DMULT] || 1.0) * (1 + spec.stacks * p[I.KILL_MAX] * p[I.KILL_DMG]);
+  const mods = []; for (const k of ['ea', 'ec', 'oc', 'op', 'fa']) for (const q of g[k]) for (const x of q) mods.push(x);
+  const fl = a => { const out = []; for (const r of a) for (const x of r) out.push(x); return Float64Array.from(out); };
+  const nea = g.ea.length, nec = g.ec.length, noc = g.oc.length, nop = g.op.length, nfa = g.fa.length;
+  f = { p, mods: Float64Array.from(mods), low: fl(g.low), tb: fl(g.tb), cond: fl(g.cond), st,
+        nea, nec, noc, nop, nfa, nlow: g.low.length, ntb: g.tb.length, ncond: g.cond.length, perks: bits,
+        mea: 0, mec: nea * MODW, moc: (nea + nec) * MODW, mop: (nea + nec + noc) * MODW, mfa: (nea + nec + noc + nop) * MODW,
+        maxhp: st.hp, healcap: cround(HEAL_CAP * st.hp), dmult: p[I.DMULT] > 0 ? p[I.DMULT] : 1, tmult: p[I.TMULT] > 0 ? p[I.TMULT] : 1, noheal: p[I.NOHEAL] > 0,
+        pend: new Float64Array(MAXPEND * 10), nextA: new Float64Array(16), nextC: new Float64Array(16), tbNext: new Float64Array(MAXTB), tbStack: new Int32Array(MAXTB),
+        regStart: new Float64Array(MAXLOW), regOnce: new Int32Array(MAXLOW), ptdExp: new Float64Array(48), debExp: new Float64Array(32) };
+  if (_FT.size > 3000) _FT.clear();
+  _FT.set(key, f); return f;
+}
+function fzero(f) { f.dealt = f.healed = f.plain = 0; f.landed = f.tried = f.ncrit = f.lbused = f.nplain = 0; }
+function freset(f) {
+  f.hp = f.maxhp; f.shield = 0; f.npend = 0;
+  for (let i = 0; i < f.nea && i < 16; i++) f.nextA[i] = Math.trunc(f.mods[f.mea + i * MODW]);
+  for (let i = 0; i < f.nec && i < 16; i++) f.nextC[i] = Math.trunc(f.mods[f.mec + i * MODW]);
+  for (let i = 0; i < f.ntb && i < MAXTB; i++) { f.tbNext[i] = f.tb[i * TBW]; f.tbStack[i] = 0; }
+  for (let i = 0; i < MAXLOW; i++) { f.regStart[i] = -1; f.regOnce[i] = 0; }
+  f.tAtk = f.tDef = f.tCrit = f.tPar = f.permDef = f.pdef = f.wrath = f.poison = f.immUntil = 0;
+  f.nptd = f.ndeb = f.pt = f.fhDone = f.fhAtk = f.hc1 = f.hc2 = f.halvePend = f.immArmed = f.mom = f.rip = 0;
+  f.firstN = f.p[I.FIRSTN_ABSORB] | 0; f.last = f.perks & P_LAST; f.attacks = f.crits = f.swings = 0;
+}
+function fheal(f, h) {
+  if (f.noheal || h <= 0 || f.hp <= 0) return;
+  if (h > f.healcap) h = f.healcap;
+  let n = f.hp + h; f.healed += h;
+  if (n > f.maxhp) { if (f.p[I.OVERHEAL] > 0) { f.shield += n - f.maxhp; if (f.shield > f.maxhp) f.shield = f.maxhp; } n = f.maxhp; }
+  f.hp = n;
+}
+function fpush(f, o) {
+  if (f.npend >= MAXPEND) return;
+  const b = f.npend++ * 10, m = f.mods; f.pend[b] = m[o + 1] < 1 ? 1 : m[o + 1];
+  for (let i = 1; i < 10; i++) f.pend[b + i] = m[o + 1 + i];
+}
+function sdm(turn) {
+  if (turn < 60) return 1.0;
+  const steps = turn < 200 ? 1 + Math.trunc((turn - 60) / 10) : 15 + Math.trunc((turn - 200) / 3);
+  const m = Math.pow(1.05, steps); return m > 1000 ? 1000 : m;
+}
+const mkLow = () => ({ atkPct: 0, defPct: 0, crit: 0, ls: 0, absorb: 0, atkFlat: 0, all: 0, dmgPerAtk: 0, regenPerAtk: 0, regenPerCrit: 0, atkLs: 0, permDef: 0, immuneCrit: 0, gcrit: 0 });
+const LA = mkLow(), LD = mkLow();
+function lowaggF(f, o) {
+  const r = f.hp / f.maxhp, low = f.low;
+  o.atkPct = o.defPct = o.crit = o.ls = o.absorb = o.atkFlat = o.all = o.dmgPerAtk = o.regenPerAtk = o.regenPerCrit = o.atkLs = o.permDef = 0; o.immuneCrit = 0; o.gcrit = 0;
+  for (let i = 0; i < f.nlow; i++) {
+    const b = i * LOWW;
+    if (r < low[b]) {
+      o.atkPct += low[b + 1]; o.defPct += low[b + 2]; o.crit += low[b + 3]; o.ls += low[b + 5]; o.absorb += low[b + 6]; o.atkFlat += low[b + 7];
+      o.all += low[b + 8]; o.dmgPerAtk += low[b + 9]; o.regenPerAtk += low[b + 10]; o.regenPerCrit += low[b + 11]; o.atkLs += low[b + 12];
+      if (low[b + 13] > 0) o.immuneCrit = 1; o.permDef += low[b + 14]; if (low[b + 15] > 0) o.gcrit = 1;
+    }
+  }
+  if (o.absorb > ABSORB_CAP) o.absorb = ABSORB_CAP;
+}
+function swing(A, D, turn, elapsed) {
+  const p = A.p, q = D.p;
+  lowaggF(A, LA); lowaggF(D, LD);
+  if (LA.permDef > A.permDef) A.permDef = LA.permDef;
+  if (LD.permDef > D.permDef) D.permDef = LD.permDef;
+  const sd = sdm(turn); let healA = LA.regenPerAtk, healD = 0, dealt = 0;
+  A.swings++; A.tried++;
+  {
+    const r = D.hp / D.maxhp, low = D.low;
+    for (let i = 0; i < D.nlow && i < MAXLOW; i++) {
+      const b = i * LOWW; if (low[b + 4] <= 0) continue;
+      const restOn = low[b + 18] > 0 && D.regStart[i] >= 0;
+      if (r < low[b] || restOn) {
+        if (D.regStart[i] < 0) D.regStart[i] = elapsed;
+        if (low[b + 17] > 0) { if (D.regOnce[i]) continue; D.regOnce[i] = 1; }
+        else if (low[b + 16] > 0 && elapsed - D.regStart[i] >= low[b + 16]) continue;
+        healD += low[b + 4];
+      }
+    }
+  }
+  const pierce = A.perks & P_PIERCE;
+  const lunge = p[I.LUNGE] > 0 && A.swings % 3 === 0, echo = p[I.ECHO] > 0 && A.swings % 5 === 0;
+  let atk = (1 + LA.atkPct) * p[I.ATK] + A.tAtk + LA.atkFlat + LA.all;
+  if (A.fhAtk) atk *= 1 + p[I.FH_ATKPCT];
+  let pp = q[I.PAR] > 55 ? 55 : q[I.PAR]; pp += D.tPar; if (pp > 55) pp = 55;
+  let epar = pp / 100.0 * (pierce ? 0.65 : 1.0) * (1 - p[I.PARRY_IGN]);
+  {
+    let un = 0;
+    for (let i = 0; i < A.npend; i++) if (A.pend[i * 10 + 8] > 0) un = 1;
+    for (let i = 0; i < A.nea && i < 16; i++) if (A.mods[A.mea + i * MODW + 9] > 0 && A.nextA[i] <= A.attacks + 1) un = 1;
+    if (un) epar = 0;
+  }
+  if (!lunge && !echo && rnd() < epar) {
+    healD += q[I.PARRY_HEAL];
+    A.hp -= cround(atk * q[I.PARRY_REFL]) + q[I.PARRY_COUNTER];
+    for (let i = 0; i < D.nop; i++) fpush(D, D.mop + i * MODW);
+    D.pdef += q[I.PARRY_DEF_REST]; if (D.pdef > 40 * q[I.PARRY_DEF_REST]) D.pdef = 40 * q[I.PARRY_DEF_REST];
+    if (q[I.PTD_AMT] > 0 && D.nptd < 48) D.ptdExp[D.nptd++] = elapsed + q[I.PTD_SEC];
+    if (q[I.RIPOSTE] > 0) D.rip = 2;
+  } else {
+    A.attacks++;
+    if (A.attacks === 1) for (let i = 0; i < A.nfa; i++) fpush(A, A.mfa + i * MODW);
+    for (let i = 0; i < A.nea && i < 16; i++) if (A.attacks >= A.nextA[i]) {
+      fpush(A, A.mea + i * MODW); A.nextA[i] += Math.trunc(A.mods[A.mea + i * MODW]); healA += A.mods[A.mea + i * MODW + 10];
+    }
+    let aPct = 0, aFlat = 0, aIgn = 0, aOcrit = 0, aCbon = 0, aFull = 0, aMult = 0; const pe = A.pend;
+    for (let i = 0; i < A.npend; i++) {
+      const b = i * 10; aPct += pe[b + 1]; aFlat += pe[b + 2]; if (pe[b + 3] > aIgn) aIgn = pe[b + 3];
+      if (pe[b + 4] > aOcrit) aOcrit = pe[b + 4]; aCbon += pe[b + 5]; if (pe[b + 6] > 0) aFull = 1; if (pe[b + 7] > aMult) aMult = pe[b + 7];
+    }
+    if ((A.perks & P_FURY) && A.hp < 0.4 * A.maxhp) atk *= p[I.FURYM] > 0 ? p[I.FURYM] : 1.8;
+    let d = atk * (0.8 + 0.4 * rnd()) * A.dmult;
+    if (p[I.MOMENTUM] > 0) { d *= 1 + p[I.MOMENTUM] * A.mom; if (A.mom < 10) A.mom++; }
+    const cap = p[I.CAP];
+    let cc = p[I.CRIT] + LA.crit; if (cc > cap) cc = cap; cc += A.tCrit; if (cc > cap) cc = cap; cc += LA.all; if (cc > cap) cc = cap;
+    const ch = aOcrit > 0 ? aOcrit : (aCbon * 100 + cc + A.wrath) / 100.0 * q[I.ECC];
+    let c = rnd() < ch;
+    if (p[I.FIRST_CRIT] > 0 && A.attacks === 1) c = true;
+    if (LA.gcrit) c = true;
+    if (p[I.NOCRIT] > 0) c = false;
+    if (A.perks & P_WRATH) { if (c) A.wrath = 0; else { A.wrath += 10; if (A.wrath > 50) A.wrath = 50; } }
+    if (c && !LD.immuneCrit) d *= 1 + q[I.ECM];
+    if (aMult > 0) d *= aMult;
+    if (aPct > 0) d *= 1 + aPct;
+    if (lunge) d *= 1 + p[I.LUNGE];
+    if (echo) d *= 1 + p[I.ECHO];
+    if (A.rip > 0) { d *= 1 + p[I.RIPOSTE]; A.rip--; }
+    {
+      const r = D.hp / D.maxhp, cd = A.cond;
+      for (let i = 0; i < A.ncond; i++) { const b = i * CDW; if ((cd[b + 1] > 0 && cd[b] < r) || (cd[b + 1] <= 0 && r < cd[b])) d *= 1 + cd[b + 2]; }
+    }
+    let ed = ((1 + LD.defPct) * q[I.DFN] + D.tDef) * (1 + D.permDef) + LD.all + D.pdef;
+    if (D.nptd) { let k = 0; for (let i = 0; i < D.nptd; i++) if (D.ptdExp[i] > elapsed) D.ptdExp[k++] = D.ptdExp[i]; D.nptd = k; ed += q[I.PTD_AMT] * D.nptd; }
+    if (A.ndeb) { let k = 0; for (let i = 0; i < A.ndeb; i++) if (A.debExp[i] > turn) A.debExp[k++] = A.debExp[i]; A.ndeb = k; ed -= p[I.DEBUFF_AMT] * A.ndeb; }
+    if (ed < 0) ed = 0;
+    let ign = aIgn + p[I.DEF_IGN] + (pierce ? 0.35 : 0.0); if (ign > 0.5) ign = 0.5;
+    if (aFull > 0) ed = 0; else ed *= 1 - ign;
+    const flatd = aFlat + LA.dmgPerAtk + p[I.FLAT];
+    let dmg = cround((flatd + d) * 60.0 / (ed + 60.0) * sd * D.tmult); if (dmg < 1) dmg = 1;
+    { let k = 0; for (let i = 0; i < A.npend; i++) { const b = i * 10; pe[b] -= 1; if (pe[b] >= 1) { if (k !== i) pe.copyWithin(k * 10, b, b + 10); k++; } } A.npend = k; }
+    if (q[I.IMM_SEC] > 0) {
+      if (!D.immArmed && D.hp / D.maxhp < q[I.IMM_THR]) { D.immArmed = 1; D.immUntil = elapsed + q[I.IMM_SEC]; }
+      if (D.immArmed && elapsed < D.immUntil) dmg = 0;
+    }
+    if (dmg > 0 && D.halvePend > 0) { D.halvePend--; dmg = Math.floor(dmg / 2); if (dmg < 1) dmg = 1; }
+    if (LD.absorb > 0) dmg = cround((1 - LD.absorb) * dmg);
+    if (!D.fhDone && (q[I.FH_ABSORB] > 0 || q[I.FH_COUNTER] > 0 || q[I.FH_HEAL] > 0 || q[I.FH_ATKPCT] > 0)) {
+      D.fhDone = 1; if (q[I.FH_ABSORB] > 0) dmg = cround(dmg * (1 - q[I.FH_ABSORB]));
+      A.hp -= q[I.FH_COUNTER]; healD += q[I.FH_HEAL]; if (q[I.FH_ATKPCT] > 0) D.fhAtk = 1;
+    }
+    {
+      let kind = 0;
+      if (q[I.HITN1_N] > 0) { if (++D.hc1 >= q[I.HITN1_N]) { D.hc1 = 0; if (q[I.HITN1_KIND] > kind) kind = q[I.HITN1_KIND]; healD += q[I.HITN_HEAL]; } }
+      if (q[I.HITN2_N] > 0) { if (++D.hc2 >= q[I.HITN2_N]) { D.hc2 = 0; if (q[I.HITN2_KIND] > kind) kind = q[I.HITN2_KIND]; healD += q[I.HITN_HEAL]; } }
+      if (kind >= 1) dmg = 0; else { if (kind > 0) dmg = Math.floor(dmg / 2); if (dmg > 0 && D.firstN > 0) { D.firstN--; dmg = 0; } }
+    }
+    if (q[I.BULWARK] > 0 && D.hp < 0.25 * D.maxhp) dmg = cround(dmg * (1 - q[I.BULWARK]));
+    if (D.shield > 0 && dmg > 0) { const ab = D.shield < dmg ? D.shield : dmg; D.shield -= ab; dmg -= ab; }
+    if (dmg > 0) {
+      let rf = q[I.REFLECT] + q[I.PREFLECT]; if (rf > REFLECT_CAP) rf = REFLECT_CAP;
+      if (rf > 0) A.hp -= cround(rf * dmg);
+      if (q[I.REFL_HEAL] > 0) healD += cround(dmg * q[I.REFL_HEAL]);
+    }
+    if (c) dmg += p[I.CRIT_BONUS];
+    D.hp -= dmg; dealt = dmg; A.dealt += dmg; A.landed++;
+    if (!c && aFull <= 0 && dmg > 0 && sd <= 1.0) { A.plain += dmg; A.nplain++; }
+    let ls = p[I.PLS] + p[I.BCURSE] + LA.ls + p[I.LIFESTEAL] + LA.atkLs + (c ? p[I.CRIT_LS] : 0); if (ls > LS_CAP) ls = LS_CAP;
+    healA += cround(dmg * ls) + ((A.perks & P_VOW) && dmg > 0 ? 3 : 0);
+    if (c) {
+      A.crits++; A.ncrit++; healA += p[I.CRIT_HEAL] + LA.regenPerCrit;
+      for (let i = 0; i < A.noc; i++) fpush(A, A.moc + i * MODW);
+      if (p[I.DEBUFF_AMT] > 0 && A.ndeb < 32) A.debExp[A.ndeb++] = turn + p[I.DEBUFF_TURNS];
+      for (let i = 0; i < A.nec && i < 16; i++) if (A.crits >= A.nextC[i]) { fpush(A, A.mec + i * MODW); A.nextC[i] += Math.trunc(A.mods[A.mec + i * MODW]); }
+      if (p[I.CRIT_HALVE] > 0) A.halvePend++;
+      if (A.perks & P_VENOM) { D.poison += 28; D.pt = 8; }
+      if (p[I.POISON_TOTAL] > 0) { if (p[I.POISON_TOTAL] > D.poison) D.poison = p[I.POISON_TOTAL]; if (p[I.POISON_TURNS] > D.pt) D.pt = p[I.POISON_TURNS] | 0; }
+    }
+    if (D.hp <= 0 && D.last) { D.hp = Math.ceil(0.25 * D.maxhp); D.last = 0; D.lbused++; }
+  }
+  if (D.pt && D.hp > 0) { let t = Math.floor(D.poison / D.pt); if (t < 1) t = 1; D.hp -= t; D.poison -= t; D.pt--; }
+  if (A.pt && A.hp > 0) { let t = Math.floor(A.poison / A.pt); if (t < 1) t = 1; A.hp -= t; A.poison -= t; A.pt--; }
+  if (A.hp > 0) fheal(A, healA);
+  if (D.hp > 0) fheal(D, healD);
+  if (p[I.BCURSE] > 0 && dealt > 0) { A.hp -= cround(0.11 * dealt); if (A.hp < 1) A.hp = 1; }
+  if (A.hp <= 0 && A.last) { A.hp = Math.ceil(0.25 * A.maxhp); A.last = 0; A.lbused++; }
+}
+function fticks(f, elapsed) {
+  for (let i = 0; i < f.ntb && i < MAXTB; i++) {
+    const b = i * TBW, q = f.tb;
+    if (f.tbNext[i] <= elapsed + 1e-4) {
+      f.tbNext[i] += q[b];
+      const st = q[b + 2] | 0;
+      if (st === 5) { fheal(f, q[b + 1]); continue; }
+      if (q[b + 3] > 0 && f.tbStack[i] >= q[b + 3]) continue;
+      f.tbStack[i]++;
+      if (st === 0) f.tAtk += q[b + 1]; else if (st === 1) f.tDef += q[b + 1]; else if (st === 2) f.tCrit += q[b + 1]; else if (st === 3) f.tPar += q[b + 1];
+      else if (st === 4) { f.tAtk += q[b + 1]; f.tDef += q[b + 1]; f.tCrit += q[b + 1]; f.tPar += q[b + 1]; }
+    }
+  }
+  if (f.p[I.BULWARK] > 0 && !f.noheal && f.hp < 0.25 * f.maxhp) { f.hp += 4; if (f.hp > f.maxhp) f.hp = f.maxhp; }
+}
+/* n fights; X swings first when first is truthy. A double KO counts as a loss for X. */
+function duel(X, Y, n, seed, first) {
+  if (X === Y) throw new Error('duel needs two distinct fighters');
+  seedRng(seed); fzero(X); fzero(Y);
+  let wins = 0, turns = 0, sdn = 0;
+  for (let k = 0; k < n; k++) {
+    freset(X); freset(Y);
+    let turn = 0, elapsed = 0, res = -1; const a = first ? X : Y, b = first ? Y : X;
+    while (res < 0) {
+      turn++; swing(a, b, turn, elapsed);
+      if (X.hp <= 0) res = 0; else if (Y.hp <= 0) res = 1;
+      if (res >= 0) break;
+      elapsed += 0.5;
+      turn++; swing(b, a, turn, elapsed);
+      if (X.hp <= 0) res = 0; else if (Y.hp <= 0) res = 1;
+      if (res >= 0) break;
+      elapsed += 0.5;
+      fticks(X, elapsed); fticks(Y, elapsed);
+      if (turn > 2000) res = 0;
+    }
+    wins += res; turns += turn; if (turn >= 60) sdn++;
+  }
+  return { win: wins / n, turns: turns / n, xdpl: X.dealt / (X.landed || 1), xland: X.landed / (X.tried || 1), xcrit: X.ncrit / (X.landed || 1),
+           ydpl: Y.dealt / (Y.landed || 1), yland: Y.landed / (Y.tried || 1), ycrit: Y.ncrit / (Y.landed || 1), sd: sdn / n, xheal: X.healed / n, yheal: Y.healed / n,
+           xlb: X.lbused / n, ylb: Y.lbused / n, xplain: X.plain / (X.nplain || 1), yplain: Y.plain / (Y.nplain || 1) };
+}
+/* Fit a replay opponent (tools/pvpfit2.py): gear and max HP are known, perks and stat points are guessed from the swings. */
+function fitOpponent(job) {
+  const o = job.obs, names = job.names, g = gearOf(names), POINTS = Math.max(0, ((job.level || 60) - 1) * 5);
+  const me = fighter(job.me);
+  const binll = (k, n, p) => { p = Math.min(0.999, Math.max(0.001, p)); return k * Math.log(p) + (n - k) * Math.log(1 - p); };
+  let best = null;
+  for (const hpk of [null, 10, 9]) for (const ig of [0, 1]) for (const du of [0, 1]) for (const rival of [0, 1]) {
+    const K = [hpk, ig ? 30 : null, du ? 22 : null, rival ? 14 : null, (o.lb === true || o.lb === null) ? 29 : null].filter(Boolean);
+    const base = totals(g, [0, 0, 0, 0, 0], K, []).hp, per = (totals(g, [100, 0, 0, 0, 0], K, []).hp - base) / 100;
+    let h = pyRound((job.maxHp - base) / per);
+    if (h < -3 || h > POINTS + 3) continue;
+    h = Math.min(POINTS, Math.max(0, h)); const rest = POINTS - h;
+    for (let a = 0; a < 5; a++) for (let b = 0; b < 5; b++) for (let c = 0; c < 5; c++) for (let d = 0; d < 5; d++) {
+      if (a + b + c + d !== 4) continue;
+      const al = [h, pyRound(rest * a / 4), pyRound(rest * b / 4), pyRound(rest * c / 4), pyRound(rest * d / 4)];
+      const f = fighter({ names, perks: K, alloc: al }), r = duel(me, f, 150, 3, 1);
+      let ll = binll(o.my_par, o.n_my, 1 - r.xland) + binll(o.th_crit, o.th_land, r.ycrit);
+      if (o.my_land >= 3) ll -= 0.5 * Math.pow(Math.log(Math.max(1, r.xdpl) / o.my_dpl) / (0.2 + 0.35 / Math.sqrt(o.my_land)), 2);
+      if (o.n_plain >= 2) ll -= 0.5 * Math.pow(Math.log(Math.max(1, r.xplain) / o.plain) / (0.1 + 0.3 / Math.sqrt(o.n_plain)), 2);
+      if (o.th_land >= 3) ll -= 0.5 * Math.pow(Math.log(Math.max(1, r.ydpl) / o.th_dpl) / (0.12 + 0.35 / Math.sqrt(o.th_land)), 2);
+      ll -= 0.3 * K.filter(k => k === 22 || k === 14).length;
+      if (best === null || ll > best.ll) best = { ll, perks: K, alloc: al };
+    }
+  }
+  if (!best) return { failed: true };
+  const f = fighter({ names, perks: best.perks, alloc: best.alloc }), r = duel(me, f, 1500, 9, 1);
+  return { perks: best.perks, alloc: best.alloc, st: Object.assign({}, f.st), simWin: r.win, ll: best.ll };
+}
+/* job: { type:'pvp', build, opps:[spec], n, seed, robust, detail } */
+function runPvp(job) {
+  const b = job.build, K = b.perks.filter(k => PERKS[k]);
+  const X = fighter({ names: b.names, perks: K, alloc: b.alloc, stacks: job.stacks === undefined ? 0.5 : job.stacks });
+  const rs = job.opps.map(s => duel(X, fighter(s), job.n, job.seed, 1)), wins = rs.map(r => r.win);
+  const avg = a => a.reduce((x, y) => x + y, 0) / (a.length || 1);
+  let score = avg(wins);
+  if (job.robust) { const w = wins.slice().sort((x, y) => x - y); score = 0.5 * score + 0.5 * avg(w.slice(0, Math.max(1, Math.ceil(w.length / 3)))); }
+  const res = { score };
+  if (job.detail) {
+    const X0 = fighter({ names: b.names, perks: K, alloc: b.alloc, stacks: 0 });
+    const def = job.opps.map(s => duel(X0, fighter(s), job.n, job.seed + 1, 0));
+    res.r = { wins, mean: avg(wins), min: Math.min.apply(null, wins), def: def.map(r => r.win), defMean: avg(def.map(r => r.win)), st: X.st, duels: rs, unparsed: gearOf(b.names).unparsed };
+  }
+  return res;
+}
+
 /* ------------------------------------------------------------------ goals */
 const GOALS = {
   push: { label: 'Push the highest wave', unit: 'max wave', short: 'Max wave',
@@ -1043,6 +1369,7 @@ const GOALS = {
   mythic: { label: 'Farm Mythics', unit: 'mythic-equivalents / real h', short: 'Mythic-eq / h', score: r => r.me, fmt: v => v.toFixed(2) + ' ME/h' },
   ascended: { label: 'Farm Ascended', unit: 'Ascended drops / real h', short: 'Ascended / h', score: r => r.asc, fmt: v => v.toFixed(3) + ' /h' },
   bloodmarks: { label: 'Farm Bloodmarks', unit: 'Bloodmarks / real h', short: 'Bloodmarks / h', score: r => r.bm, fmt: v => v.toFixed(0) + ' BM/h' },
+  pvp: { label: 'PvP win rate', unit: 'win rate attacking first, against the opponent pool', short: 'PvP win rate', pvp: true, score: r => r.mean, fmt: v => (v * 100).toFixed(0) + '%' },
   xp: { label: 'Farm XP', unit: 'XP / real h', short: 'XP / h', score: r => r.xp_rh, fmt: v => (v / 1e6).toFixed(2) + 'M XP/h' },
 };
 
@@ -1059,13 +1386,15 @@ function summarize(r) {
 }
 /* job: { build, o, goal, detail } -> { score, r? } */
 function runJob(job) {
+  if (job.type === 'pvp') return runPvp(job);
+  if (job.type === 'fit') return fitOpponent(job);
   const r = simulate(job.build, job.o);
   const res = { score: GOALS[job.goal].score(r) };
   if (job.detail) res.r = summarize(r);
   return res;
 }
 
-return { IDX, I, ALL, BYNAME, BYID, PERKS, PERK_IDS, UNMODELLED_PERKS, SLOT_UNLOCK, POTIONS, POTION_NAMES, POTION_BY_ID, ELEM_NAME, RARITY, SLOT, ORDER,
+return { PVP_PERK_IDS, fighter, duel, fitOpponent, IDX, I, ALL, BYNAME, BYID, PERKS, PERK_IDS, UNMODELLED_PERKS, SLOT_UNLOCK, POTIONS, POTION_NAMES, POTION_BY_ID, ELEM_NAME, RARITY, SLOT, ORDER,
          POS_NAME, GOALS, BASE, PT: [HP_PT, ATK_PT, DEF_PT, CRIT_PT, PARRY_PT], gear, gearOf, totals, bonuses, simulate, summarize, runJob, isShield,
          waveScale, reqLevel, ROWS, BLU, DISMANTLE };
 })(typeof LB_DATA !== 'undefined' ? LB_DATA : (typeof globalThis !== 'undefined' ? globalThis.LB_DATA : undefined));
@@ -1171,7 +1500,8 @@ function makePools(profile, cfg) {
     pool.push(top.map(it => it.itemName).sort());
   }
   const banP = new Set(cfg.bannedPerks || []);
-  const perks = (cfg.perkSource === 'owned' ? profile.ownedPerks.filter(k => PERKS[k]) : PERK_IDS).filter(k => !banP.has(k)).slice().sort((a, b) => a - b);
+  const basePerks = cfg.goal === 'pvp' ? LB.PVP_PERK_IDS : PERK_IDS;
+  const perks = (cfg.perkSource === 'owned' ? profile.ownedPerks.filter(k => basePerks.indexOf(k) >= 0) : basePerks).filter(k => !banP.has(k)).slice().sort((a, b) => a - b);
   const nslots = Math.max(1, Math.min(5, cfg.perkSlots || profile.perkSlots || 5));
   let pots = [];
   if (cfg.potMode === 'owned') pots = POTION_NAMES.filter(n => profile.ownedPots[n]);
@@ -1219,6 +1549,12 @@ const PRESETS = {
     { names: ["Crown of the Undying", "Remains of Sbard the Ugly", "Mawfire Cummerbund", "Sword of Divine Justice", "Frirekr Toto's Aegis", "Ring of Final Ascension", "Dawnguard Pendant"], perks: [10, 28, 17, 29, 30], alloc: [106, 0, 175, 0, 14] },
     { names: ["Supreme Assassin's Hood", "Hollow Night Vestments", "The Hollow Coil", "Grieffang", "Grieffang", "Frozen Core Ring", "Hallowed Icon"], perks: [10, 29, 28, 17, 11], alloc: [0, 0, 295, 0, 0] },
   ],
+  pvp: [
+    { names: ["Supreme Assassin's Hood", "Ebonwake Cuirass", "Echo-Wane Belt", "Frost Colossus Shield", "Grieffang", "Drowned Moon Seal", "Riposte of the Dark One"], perks: [4, 10, 11, 22, 29], alloc: [0, 0, 220, 0, 75] },
+    { names: ["Horns of Death's Assistant", "Pyrestorm Bastion", "The World's Serpent", "Sword of Divine Justice", "Emberdoom Greatsword", "Ring of Final Ascension", "Dark Grief Knot"], perks: [6, 10, 22, 27, 29], alloc: [100, 0, 195, 0, 0] },
+    { names: ["Horns of Death's Assistant", "Simon of Vineyards' Vest", "Cincture of the Three Stars", "Grieffang", "Grieffang", "Hidden Axis Seal", "Dark Grief Knot"], perks: [6, 14, 22, 25, 29], alloc: [295, 0, 0, 0, 0] },
+    { names: ["Crown of the Undying", "Simon of Vineyards' Vest", "The World's Serpent", "Grieffang", "Sword of Divine Justice", "The Smiling Martyr's Halo", "Dawnguard Pendant"], perks: [10, 14, 28, 29, 30], alloc: [0, 0, 195, 0, 100] },
+  ],
   glass: [
     { names: ["Frog Mouth Helm of Ire", "Simon of Vineyards' Vest", "Sash of Death Sentence", "Bern the Bear's Scythe", "Sword of Divine Justice", "Farn Ahb'Ahzz's Trial", "Essence of the Abyss"], perks: [22, 21, 6, 29, 11], alloc: [150, 0, 120, 0, 25] },
     { names: ["Frog Mouth Helm of Ire", "Fire Titan Cuirass", "The World's Serpent", "Bern the Bear's Scythe", "Mace of the Avalanche", "Ring of Final Ascension", "Essence of the Abyss"], perks: [22, 11, 28, 4, 6], alloc: [31, 0, 250, 0, 14] },
@@ -1231,7 +1567,8 @@ const DEPTH = {
   standard: { h: 80, starts: 3, passes: 3, pairLimit: 420, top: 6, label: 'Standard' },
   thorough: { h: 160, starts: 5, passes: 4, pairLimit: 5000, top: 8, label: 'Thorough' },
 };
-const SCREEN_SEEDS = [3], CONFIRM_SEEDS = [3, 5], FINAL_SEEDS = [11, 12, 13, 14];
+const A_SCREEN = [3], A_CONFIRM = [3, 5], FINAL_SEEDS = [11, 12, 13, 14];
+const P_SCREEN = [5], P_CONFIRM = [7], P_FINAL = [11], PVP_N = { screen: 60, confirm: 300, final: 1500 };
 
 function simOpts(profile, cfg, h, seed) {
   return { plvl: profile.level, budgetH: h, seed, startWave: Math.max(1, cfg.startWave || profile.record), bossmask: cfg.bossmask === undefined ? profile.bossmask : cfg.bossmask,
@@ -1244,18 +1581,22 @@ class Cancelled extends Error {}
 /* ------------------------------------------------------------------ search */
 async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
   const P = makePools(profile, cfg), D = DEPTH[cfg.depth] || DEPTH.standard, goal = cfg.goal, lock = cfg.lock || {};
+  const isPvp = goal === 'pvp', SCREEN_SEEDS = isPvp ? P_SCREEN : A_SCREEN, CONFIRM_SEEDS = isPvp ? P_CONFIRM : A_CONFIRM, FIN_SEEDS = isPvp ? P_FINAL : FINAL_SEEDS;
   const H = goalHours(cfg, D.h), HF = H * 3;
+  const pvpN = seeds => seeds === SCREEN_SEEDS ? PVP_N.screen : seeds === CONFIRM_SEEDS ? PVP_N.confirm : PVP_N.final;
+  const beats = (a, b) => isPvp ? a > b + 0.006 : a > b * 1.015 + 1e-9;
   const cache = new Map(); let done = 0; const log = [];
   const prog = (stage) => { if (onProgress) onProgress({ stage, done }); };
   async function ev(builds, seeds, h, detail) {
     const jobs = [], slots = [];
     builds.forEach((b, bi) => seeds.forEach(s => {
       const ck = keyOf(b) + '@' + s + '@' + h + (detail ? 'd' : '');
-      if (!cache.has(ck)) { jobs.push({ build: b, o: simOpts(profile, cfg, h, s), goal, detail: !!detail }); slots.push(ck); }
+      if (!cache.has(ck)) { jobs.push(isPvp ? { type: 'pvp', build: b, opps: cfg.opps, n: pvpN(seeds), seed: s, robust: !!cfg.robust, detail: !!detail } : { build: b, o: simOpts(profile, cfg, h, s), goal, detail: !!detail }); slots.push(ck); }
     }));
-    for (let i = 0; i < jobs.length; i += 256) {
+    const batch = isPvp ? 48 : 256;
+    for (let i = 0; i < jobs.length; i += batch) {
       if (isCancelled && isCancelled()) throw new Cancelled();
-      const part = await evalJobs(jobs.slice(i, i + 256));
+      const part = await evalJobs(jobs.slice(i, i + batch));
       part.forEach((r, j) => cache.set(slots[i + j], r)); done += part.length; prog();
     }
     return builds.map(b => {
@@ -1331,7 +1672,7 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
         const conf = (await ev(screened.map(x => x.build), CONFIRM_SEEDS, H)).sort(better);
         alts[pos] = { tested: cand.length, top: conf.slice(0, 4).map(x => ({ build: x.build, score: x.score })), ref: cur.score };
         const best = conf[0];
-        if (best && best.score > cur.score * 1.015 + 1e-9) {
+        if (best && beats(best.score, cur.score)) {
           steps.push({ what: posLabel(pos), from: cur.build, to: best.build, before: cur.score, score: best.score, pass: pass + 1 });
           cur = best; changed = true;
         }
@@ -1343,7 +1684,7 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
 
   /* starting points: what is equipped now, then the known archetypes for the goal, adapted to the restrictions */
   const equippedBuild = adapt({ names: profile.equipped, perks: profile.equippedPerks, alloc: profile.alloc, pots: cfg.potMode === 'fixed' ? cfg.pots : [] }, P, cfg, profile);
-  const arche = goal === 'push' ? PRESETS.tank.concat(PRESETS.glass.slice(0, 1)) : PRESETS.glass.concat(PRESETS.tank.slice(1, 2));
+  const arche = isPvp ? PRESETS.pvp : goal === 'push' ? PRESETS.tank.concat(PRESETS.glass.slice(0, 1)) : PRESETS.glass.concat(PRESETS.tank.slice(1, 2));
   const starts = []; const seenStart = new Set();
   const addStart = (b, label) => { const a = adapt(b, P, cfg, profile); const k = keyOf(a); if (!seenStart.has(k) && a.names.some(Boolean)) { seenStart.add(k); starts.push({ build: a, label }); } };
   addStart(equippedBuild, 'your equipped build');
@@ -1370,7 +1711,7 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
   if (!uniq.has(baseKey)) finalists.push(equippedBuild);
   prog('Final check of ' + finalists.length + ' builds on fresh seeds');
   const cancelSave = isCancelled; isCancelled = null;        // the remaining stages are short; let them finish
-  const fin = (await ev(finalists, FINAL_SEEDS, HF, true)).sort(better);
+  const fin = (await ev(finalists, FIN_SEEDS, HF, true)).sort(better);
   const winner = fin[0], baseline = fin.find(f => keyOf(f.build) === baseKey);
   const wOpt = uniq.get(keyOf(winner.build));
 
@@ -1393,13 +1734,13 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
     if (winner.build.pots.slice().sort().join() !== equippedBuild.pots.slice().sort().join())
       variants.push({ label: 'Potions', from: equippedBuild.pots.join(' + ') || 'none', to: winner.build.pots.join(' + ') || 'none', build: Object.assign({}, winner.build, { pots: equippedBuild.pots }) });
     prog('Explaining each change');
-    const rs = await ev(variants.map(v => v.build), FINAL_SEEDS, HF);
+    const rs = await ev(variants.map(v => v.build), FIN_SEEDS, HF);
     variants.forEach((v, i) => revert.push({ label: v.label, from: v.from, to: v.to, without: rs[i].score }));
   }
   /* what each perk is worth: the build with that slot empty */
   prog('Measuring each perk');
   const perkVars = winner.build.perks.map(k => Object.assign({}, winner.build, { perks: winner.build.perks.filter(x => x !== k) }));
-  const perkWorth = (await ev(perkVars, FINAL_SEEDS, HF)).map((r, i) => ({ perk: winner.build.perks[i], without: r.score }));
+  const perkWorth = (await ev(perkVars, FIN_SEEDS, HF)).map((r, i) => ({ perk: winner.build.perks[i], without: r.score }));
 
   /* what to chase: single swaps from outside the allowed pools */
   const targets = { items: [], perks: [] };
@@ -1415,7 +1756,7 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
         const n = winner.build.names.slice(); n[pos] = x; cands.push({ kind: 'item', pos, item: x, build: Object.assign({}, winner.build, { names: n }) });
       }
     }
-    for (const k of PERK_IDS) {
+    for (const k of wide.perks) {
       if (P.perks.indexOf(k) >= 0 || (cfg.bannedPerks || []).indexOf(k) >= 0) continue;
       for (let i = 0; i < winner.build.perks.length; i++) {
         const K = winner.build.perks.slice(); const out = K[i]; K[i] = k; K.sort((x, y) => x - y);
@@ -1431,9 +1772,9 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
       const bestOf = new Map();                                   // best swap per item / perk
       for (const x of order) { const c = cands[x.i], id = c.kind + ':' + (c.item || c.perk); if (!bestOf.has(id)) bestOf.set(id, c); }
       const short = Array.from(bestOf.values()).slice(0, 16);
-      const conf = await ev(short.map(c => c.build), FINAL_SEEDS, HF);
+      const conf = await ev(short.map(c => c.build), FIN_SEEDS, HF);
       short.forEach((c, i) => {
-        const gain = conf[i].score / (winner.score || 1e-12) - 1; if (!(conf[i].score > winner.score)) return;
+        const gain = conf[i].score / (winner.score || 1e-12) - 1; if (!(gain > 0.01)) return;
         if (c.kind === 'item') targets.items.push({ item: c.item, pos: c.pos, replaces: winner.build.names[c.pos], score: conf[i].score, gain, source: sourceOf(BYNAME[c.item], profile) });
         else targets.perks.push({ perk: c.perk, replaces: c.replaces, score: conf[i].score, gain, cost: PERKS[c.perk].cost });
       });
@@ -1447,6 +1788,35 @@ async function optimise(profile, cfg, evalJobs, onProgress, isCancelled) {
            poolSizes: P.pool.map(p => p.length), perkPool: P.perks, nslots: P.nslots, start: simOpts(profile, cfg, HF, 0) };
 }
 
+/* ------------------------------------------------------------------ PvP opponents */
+/* Generic end-game opponents (gear + final stats as shown on profile cards), for players without replays and as a robustness check. */
+const ARCHETYPES = [
+  { name: 'High-HP bruiser', note: '2,000 HP, 340 ATK, low DEF', names: PRESETS.pvp[2].names, stats: { hp: 1997, atk: 341, dfn: 97.8, crit: 33.9, par: 20.6 }, perks: [14, 29] },
+  { name: 'Parry wall', note: 'DEF 330, PARRY 55%', names: PRESETS.pvp[3].names, stats: { hp: 1137, atk: 169, dfn: 329.4, crit: 24.5, par: 55 }, perks: [14, 29] },
+  { name: 'Balanced tank', note: '1,700 HP, DEF 200, PARRY 35%', names: ["Frozen Grin of Horror", "Ice Feathers of Lapis Lazuli", "The World's Serpent", "Sword of Divine Justice", "Bern the Bear's Scythe", "Ring of Final Ascension", "Dark Grief Knot"], stats: { hp: 1687, atk: 78, dfn: 203.9, crit: 39.3, par: 34.7 }, perks: [14, 29] },
+];
+function parseReplay(text) {
+  let d; try { d = JSON.parse(text); } catch (e) { throw new Error('not JSON'); }
+  if (!d || !d.opponent || !Array.isArray(d.turns) || !d.player) throw new Error('not a Lootborne replay');
+  const names = side => { const out = [null, null, null, null, null, null, null]; (side.equippedItems || []).forEach(it => { const pos = SAVE_SLOTS.indexOf(it.slotName); if (pos >= 0 && BYNAME[it.itemName]) out[pos] = it.itemName; }); return out; };
+  const TA = d.turns, T = TA.filter(t => !t.suddenDeath), mine = T.filter(t => t.playerAttacking), theirs = T.filter(t => !t.playerAttacking);
+  const ml = mine.filter(t => !t.parried), tl = theirs.filter(t => !t.parried), mhp = d.opponent.maxHp;
+  let lb = null, prev = mhp;
+  for (const t of TA) { if (t.playerAttacking && !t.parried && prev - t.damage <= 0 && t.hpEnemy > 0) lb = true; prev = t.hpEnemy; }
+  if (lb === null && d.playerWon) lb = false;
+  const plain = []; let pc = false;
+  for (const t of ml) { if (!t.crit && !pc && t.damage > 0) plain.push(t.damage); pc = t.crit; }
+  plain.sort((a, b) => a - b);
+  const sum = (a, f) => a.reduce((x, t) => x + f(t), 0);
+  const obs = { plain: plain.length ? plain[Math.floor(plain.length / 2)] : 0, n_plain: plain.length, n_my: mine.length, my_par: sum(mine, t => t.parried ? 1 : 0), my_land: ml.length,
+    my_dpl: sum(ml, t => t.damage) / Math.max(1, ml.length), n_th: theirs.length, th_par: sum(theirs, t => t.parried ? 1 : 0), th_land: tl.length,
+    th_dpl: sum(tl, t => t.damage) / Math.max(1, tl.length), th_crit: sum(tl, t => t.crit ? 1 : 0), lb };
+  return { name: String(d.opponent.name || 'Opponent'), level: d.opponent.level | 0 || 60, maxHp: mhp, won: !!d.playerWon, friendly: !!d.isFriendly, ticks: String(d.timestampTicks || ''),
+           names: names(d.opponent), myNames: names(d.player), turns: TA.length, obs };
+}
+const fitJob = (profile, rp) => ({ type: 'fit', obs: rp.obs, names: rp.names, maxHp: rp.maxHp, level: rp.level,
+  me: { names: rp.myNames, perks: profile.equippedPerks.filter(k => PERKS[k]), alloc: profile.alloc } });
+
 /* Plain comparison of hand-made builds: every goal metric for each. */
 async function compare(profile, builds, cfg, evalJobs) {
   const jobs = [];
@@ -1455,7 +1825,7 @@ async function compare(profile, builds, cfg, evalJobs) {
   return builds.map((b, i) => ({ build: b, rs: rs.slice(i * FINAL_SEEDS.length, (i + 1) * FINAL_SEEDS.length) }));
 }
 
-return { parseSave, exampleProfile, makePools, adapt, optimise, compare, keyOf, sourceOf, marketable, DEPTH, FINAL_SEEDS, PRESETS, simOpts, goalHours };
+return { ARCHETYPES, parseReplay, fitJob, parseSave, exampleProfile, makePools, adapt, optimise, compare, keyOf, sourceOf, marketable, DEPTH, FINAL_SEEDS, PRESETS, simOpts, goalHours };
 })(LB);
 if (typeof module !== 'undefined') module.exports = LBP;
 
@@ -1467,7 +1837,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const { BYNAME, PERKS, PERK_IDS, GOALS, POS_NAME, ORDER, RARITY, POTIONS, POTION_NAMES } = LB;
 const STAT = ['HP', 'ATK', 'DEF', 'CRIT', 'PARRY'];
-const state = { profile: null, result: null, running: false, cancel: false, bans: [], perkRule: {}, cmp: [], cmpRes: null };
+const state = { opps: [], profile: null, result: null, running: false, cancel: false, bans: [], perkRule: {}, cmp: [], cmpRes: null };
 
 /* ------------------------------------------------------------------ worker pool */
 const Pool = (function () {
@@ -1543,6 +1913,7 @@ function setProfile(p, msg) {
   $('cmpPreset').innerHTML = '<option value="">Add a saved preset…</option>' + p.presets.map((q, i) => '<option value="' + i + '">' + esc(q.name) + '</option>').join('');
   $('cmpPreset').hidden = !p.presets.length;
   state.cmp = [equippedBuild('Equipped')];
+  state.opps = defaultOpps(); renderOpps(); $('pvpOut').innerHTML = ''; $('pvpMsg').textContent = '';
   renderOut(); renderCmpCards(); $('cmpOut').innerHTML = ''; $('cmpAddBest').disabled = true;
 }
 const equippedBuild = label => ({ label, names: state.profile.equipped.slice(), perks: pad5(state.profile.equippedPerks.filter(k => PERKS[k])), alloc: state.profile.alloc.slice(), pots: [null, null] });
@@ -1676,16 +2047,20 @@ function renderOut() {
       '<p class="note">Choose a goal on the left and press <b>Find the best build</b>. The result lists the build, how it compares with this one, what each change is worth, and which items or perks outside your restrictions would help most.</p></section>';
     return;
   }
-  if (res.error) { out.innerHTML = '<p class="note err">' + esc(res.error) + '</p>'; return; }
+  out.innerHTML = resultHtml(res);
+}
+function resultHtml(res) {
+  if (res.error) return '<p class="note err">' + esc(res.error) + '</p>';
+  const p = state.profile, isPvp = res.goal === 'pvp';
   const G = GOALS[res.goal], W = res.winner, B = res.baseline, gain = B && B.score > 0 ? W.score / B.score - 1 : null;
   const spread = W.rs.map(x => x.score), noise = (Math.max.apply(null, spread) - Math.min.apply(null, spread)) / (W.score || 1);
   const same = res.baselineIsWinner, small = !same && gain !== null && gain < Math.max(0.03, noise / 2);
   let h = '';
-  h += '<section class="blk"><div class="verdict"><div class="k"><span class="eyebrow">' + esc(G.label) + ' · best found</span><span class="big num">' + G.fmt(W.score) + '</span><span class="small muted">' + esc(G.unit) + ', four runs from ' +
-    G.fmt(Math.min.apply(null, spread)) + ' to ' + G.fmt(Math.max.apply(null, spread)) + '</span></div>' +
+  h += '<section class="blk"><div class="verdict"><div class="k"><span class="eyebrow">' + esc(G.label) + ' · best found</span><span class="big num">' + G.fmt(W.score) + '</span><span class="small muted">' + esc(G.unit) + (isPvp ? '; worst matchup ' + G.fmt(W.rs[0].r.min) + ', defending ' + G.fmt(W.rs[0].r.defMean) : ', four runs from ' +
+    G.fmt(Math.min.apply(null, spread)) + ' to ' + G.fmt(Math.max.apply(null, spread))) + '</span></div>' +
     (B ? '<div class="k"><span class="eyebrow">Your equipped build</span><span class="big num">' + G.fmt(B.score) + '</span><span class="small ' + (same || small ? 'muted' : 'good') + '">' +
       (same ? 'already the best found' : small ? pct(gain) + ', inside run-to-run noise' : pct(gain) + ' with the changes below') + '</span></div>' : '') +
-    '<div class="k small muted"><span>' + res.sims.toLocaleString('en-US') + ' simulations in ' + Math.round(res.seconds) + ' s</span><span>finalists: 4 seeds × ' + res.HF + ' game-hours from wave ' + res.start.startWave + '</span><span>' + esc(res.depth.label) + ' depth' + (res.stopped ? ', stopped early' : res.converged ? ', search converged' : ', pass limit reached') + '</span></div></div>';
+    '<div class="k small muted"><span>' + res.sims.toLocaleString('en-US') + ' simulations in ' + Math.round(res.seconds) + ' s</span>' + (isPvp ? '<span>finalists: 1,500 fights against each of ' + res.cfg.opps.length + ' opponents</span>' : '<span>finalists: 4 seeds × ' + res.HF + ' game-hours from wave ' + res.start.startWave + '</span>') + '<span>' + esc(res.depth.label) + ' depth' + (res.stopped ? ', stopped early' : res.converged ? ', search converged' : ', pass limit reached') + '</span></div></div>';
   if (same) h += '<p class="note">Nothing allowed by your restrictions beat what you are wearing by more than 1.5%. Loosen a restriction, or look at the upgrade list below.</p>';
   else if (small) h += '<p class="note">The best build found is within noise of your equipped one. Swapping is optional.</p>';
   h += '</section>';
@@ -1704,18 +2079,18 @@ function renderOut() {
   }
   h += '<div class="grid2"><div><h3>What each perk contributes</h3>' + hbars(res.perkWorth.map(x => ({ label: esc(PERKS[x.perk].name), v: 1 - x.without / (W.score || 1), tip: 'Without it: ' + G.fmt(x.without) })), v => pct(v).replace('+', '')) +
     '<p class="small muted">Share of the score lost when that slot is left empty.</p></div>' +
-    '<div><h3>How it fights</h3>' + fightStory(W.rs, res.goal) + '</div></div>';
-  h += waveCharts(W.rs);
+    (isPvp ? '' : '<div><h3>How it fights</h3>' + fightStory(W.rs, res.goal) + '</div>') + '</div>';
+  if (!isPvp) h += waveCharts(W.rs);
   if (res.goal === 'push') h += '<h3>How far and how fast</h3>' + pushTable(W.rs, res);
   if (res.goal === 'ascended') { const a = mean(W.rs, r => r.asc); h += '<p class="note">' + (a > 0 ? 'One Ascended every <b>' + hrs(1 / a) + '</b> of real time on average (' + f1(mean(W.rs, r => r.waves_h16)) + ' waves/h on 16-39 at 0.4%, ' + f1(mean(W.rs, r => r.waves_h40)) + ' waves/h on 40+ at 1%). A specific Ascended is 1 in 15, so expect about ' + hrs(15 / a) + ' for one named item.' : 'This build finishes no waves between 16 and your record, so it earns no reclear rolls.') + '</p>'; }
-  h += '<h3>Loot and income</h3>' + lootTable(W.rs);
+  if (isPvp) h += matchupTable(res); else h += '<h3>Loot and income</h3>' + lootTable(W.rs);
   const altRows = [];
   for (const pos of [0, 1, 2, 'w', 5, 6, 'k', 'a', 'p']) {
     const a = res.alts[pos]; if (!a) continue;
     const tops = a.top.filter(t => LBP.keyOf(t.build) !== LBP.keyOf(W.build)).slice(0, 3);
     tops.forEach((t, i) => { const d = diffBuild(W.build, t.build); altRows.push('<tr><td class="muted">' + (i ? '' : (typeof pos === 'number' ? POS_NAME[pos] : pos === 'w' ? 'Weapons' : pos === 'k' ? 'Perks' : pos === 'a' ? 'Stat points' : 'Potions') + ' <span class="small">(' + a.tested + ' tried)</span>') + '</td><td>' + (d.join('<br>') || 'same') + '</td><td class="n">' + pct(t.score / (a.ref || 1) - 1) + '</td></tr>'); });
   }
-  if (altRows.length) h += '<details><summary><b>Runner-ups in each slot</b> <span class="small muted">the closest alternatives the search rejected</span></summary><div class="tw" style="margin-top:8px"><table><thead><tr><th>Slot</th><th>Alternative</th><th class="n">vs the build at that step</th></tr></thead><tbody>' + altRows.join('') + '</tbody></table></div><p class="small muted">Search-stage scores (two seeds, ' + res.H + ' game-hours), so differences under about 3% are noise.</p></details>';
+  if (altRows.length) h += '<details><summary><b>Runner-ups in each slot</b> <span class="small muted">the closest alternatives the search rejected</span></summary><div class="tw" style="margin-top:8px"><table><thead><tr><th>Slot</th><th>Alternative</th><th class="n">vs the build at that step</th></tr></thead><tbody>' + altRows.join('') + '</tbody></table></div><p class="small muted">Search-stage scores (' + (isPvp ? '300 fights per opponent' : 'two seeds, ' + res.H + ' game-hours') + '), so differences under about 3% are noise.</p></details>';
   h += '</section>';
 
   /* what to chase */
@@ -1730,8 +2105,8 @@ function renderOut() {
   } else if (!res.stopped) h += '<section class="blk"><h2>What to farm or buy next</h2><p class="note">No single item or perk from outside your restrictions improves this build. ' + (res.cfg.itemSource === 'all' && res.cfg.perkSource === 'all' ? 'You searched with everything allowed.' : 'Try the search with "Everything in the game" to see whether a multi-item change does.') + '</p></section>';
 
   /* other finalists */
-  if (res.finalists.length > 1) h += '<section class="blk"><h2>Other builds the search ended on</h2><div class="tw"><table><thead><tr><th class="n">Score</th><th>Differences from the recommended build</th><th class="n">Mean wave</th><th class="n">Kills/h</th><th class="n">Deaths/h</th></tr></thead><tbody>' +
-    res.finalists.map(f => '<tr><td class="n">' + G.fmt(f.score) + '</td><td>' + (f === W ? '<b>Recommended</b>' : (f === B ? '<span class="pill">equipped now</span> ' : '') + (diffBuild(W.build, f.build).join('<br>') || 'same')) + '</td><td class="n">' + f1(mean(f.rs, r => r.meanwave)) + '</td><td class="n">' + f0(mean(f.rs, r => r.kills_h)) + '</td><td class="n">' + f1(mean(f.rs, r => r.deaths_rh)) + '</td></tr>').join('') + '</tbody></table></div></section>';
+  if (res.finalists.length > 1) h += '<section class="blk"><h2>Other builds the search ended on</h2><div class="tw"><table><thead><tr><th class="n">Score</th><th>Differences from the recommended build</th>' + (isPvp ? '<th class="n">Worst matchup</th><th class="n">Defending</th>' : '<th class="n">Mean wave</th><th class="n">Kills/h</th><th class="n">Deaths/h</th>') + '</tr></thead><tbody>' +
+    res.finalists.map(f => '<tr><td class="n">' + G.fmt(f.score) + '</td><td>' + (f === W ? '<b>Recommended</b>' : (f === B ? '<span class="pill">equipped now</span> ' : '') + (diffBuild(W.build, f.build).join('<br>') || 'same')) + '</td>' + (isPvp ? '<td class="n">' + G.fmt(f.rs[0].r.min) + '</td><td class="n">' + G.fmt(f.rs[0].r.defMean) + '</td>' : '<td class="n">' + f1(mean(f.rs, r => r.meanwave)) + '</td><td class="n">' + f0(mean(f.rs, r => r.kills_h)) + '</td><td class="n">' + f1(mean(f.rs, r => r.deaths_rh)) + '</td>') + '</tr>').join('') + '</tbody></table></div></section>';
 
   /* log + caveats */
   h += '<section class="blk"><details><summary><b>Search log</b> <span class="small muted">every swap the search accepted</span></summary>' + res.log.map(l => '<p style="margin-top:8px"><b>From ' + esc(l.start) + '</b> (' + G.fmt(l.steps[0].score) + ')' + (l.converged ? '' : ' <span class="small muted">pass limit reached</span>') + '</p><ol class="small" style="margin:4px 0">' +
@@ -1739,11 +2114,13 @@ function renderOut() {
   const cav = [];
   const unp = W.rs[0].r.unparsed || []; if (unp.length) cav.push('Item effects the model ignores in this build: ' + unp.map(esc).join('; ') + '.');
   if (p.ownedPerks.some(k => LB.UNMODELLED_PERKS[k])) cav.push('You own ' + p.ownedPerks.filter(k => LB.UNMODELLED_PERKS[k]).map(k => LB.UNMODELLED_PERKS[k]).join(' and ') + ', which the model does not cover.');
-  cav.push('Per-hour figures assume the pace correction you set (' + res.cfg.pace + 'x). The raw model runs faster than the game, so real rates are lower; rankings hold.');
+  if (isPvp) { cav.push('PvP win rates from this model are too high, especially for Mythic and Ascended builds. Use them to rank builds and spot bad matchups, not as a forecast.');
+    cav.push('Opponent perks and stat points are guesses fitted to one replay each; opponents change gear, and matchmaking can pair you with players who are not in this pool.'); }
+  else cav.push('Per-hour figures assume the pace correction you set (' + res.cfg.pace + 'x). The raw model runs faster than the game, so real rates are lower; rankings hold.');
   if (res.goal === 'push') cav.push('Push ceilings from this model have been a few waves pessimistic at the wall with Immolation and optimistic at the very top end.');
   if (res.goal === 'bloodmarks') cav.push('The Bloodmark figure counts every drop as dismantled and uses your stated PvP win rate (' + Math.round(res.cfg.pvpWin * 100) + '%); PvP fights are not simulated.');
   h += '<p class="eyebrow" style="margin-top:10px">Limits of this result</p><ul class="small muted" style="margin:0;padding-left:20px">' + cav.map(c => '<li>' + c + '</li>').join('') + '</ul></section>';
-  out.innerHTML = h;
+  return h;
 }
 
 /* ------------------------------------------------------------------ compare */
@@ -1798,7 +2175,76 @@ function renderCmpOut() {
   $('cmpOut').innerHTML = h;
 }
 
+/* ------------------------------------------------------------------ PvP */
+const oppSt = o => o.st ? 'HP ' + f0(o.st.hp) + ' · ATK ' + f0(o.st.atk) + ' · DEF ' + f0(o.st.dfn) + ' · CRIT ' + f0(Math.min(o.st.crit, 75)) + ' · PARRY ' + f0(o.st.par) : '';
+function matchupTable(res) {
+  const W = res.winner.rs[0].r, B = res.baseline ? res.baseline.rs[0].r : null, info = res.cfg.oppInfo, pc = v => (v * 100).toFixed(0) + '%';
+  const order = info.map((o, i) => i).sort((a, b) => W.wins[a] - W.wins[b]);
+  const cls = v => v < 0.4 ? 'bad' : v < 0.6 ? 'warn' : '';
+  return '<h3>Matchups, worst first</h3><div class="tw"><table><thead><tr><th>Opponent</th><th>Their build as modelled</th>' + (B && !res.baselineIsWinner ? '<th class="n">Equipped, attacking</th>' : '') +
+    '<th class="n">Recommended, attacking</th><th class="n">Recommended, defending</th><th class="n">Fight length</th></tr></thead><tbody>' +
+    order.map(i => '<tr><td><b>' + esc(info[i].name) + '</b><div class="small muted">' + esc(info[i].src) + '</div></td><td class="small">' + esc(oppSt(info[i])) + '<div class="muted">' + esc(info[i].perkText) + '</div></td>' +
+      (B && !res.baselineIsWinner ? '<td class="n ' + cls(B.wins[i]) + '">' + pc(B.wins[i]) + '</td>' : '') + '<td class="n ' + cls(W.wins[i]) + '">' + pc(W.wins[i]) + '</td><td class="n ' + cls(W.def[i]) + '">' + pc(W.def[i]) + '</td><td class="n">' + f0(W.duels[i].turns) + ' swings</td></tr>').join('') +
+    '</tbody></table></div><p class="small muted">Attacking = you swing first with half your on-kill damage stacks, as when your auto-PvP fires. Defending = they swing first and you have no stacks, as when others challenge your snapshot.</p>';
+}
+function renderOpps() {
+  const rows = state.opps.map((o, i) => '<tr><td><input type="checkbox" id="opp' + i + '" data-i="' + i + '"' + (o.on ? ' checked' : '') + ' aria-label="Include ' + esc(o.name) + '"></td><td><b>' + esc(o.name) + '</b><div class="small muted">' + esc(o.src) + '</div></td>' +
+    '<td class="small">' + o.spec.names.map(n => n ? esc(n) : '(unknown item)').join(' · ') + '</td><td class="small">' + esc(oppSt(o)) + '<div class="muted">' + esc(o.perkText) + '</div></td></tr>').join('');
+  $('pvpOpps').innerHTML = '<table><thead><tr><th>Use</th><th>Opponent</th><th>Gear</th><th>Stats and perks as modelled</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+function defaultOpps() {
+  return LBP.ARCHETYPES.map(a => ({ name: a.name, src: 'Generic archetype: ' + a.note, on: true, spec: { names: a.names, perks: a.perks, stats: a.stats }, st: a.stats,
+    perkText: 'Assumed perks: ' + a.perks.map(k => PERKS[k].name).join(' + ') }));
+}
+async function loadReplays(files) {
+  if (state.running) return; const p = state.profile, reps = []; let badN = 0;
+  for (const f of files) { try { const r = LBP.parseReplay(await f.text()); if (!r.friendly && r.names.filter(Boolean).length >= 5) reps.push(r); else badN++; } catch (e) { badN++; } }
+  if (!reps.length) { $('pvpMsg').textContent = 'None of those files were PvP replays.'; return; }
+  const latest = new Map(); reps.sort((a, b) => (a.ticks < b.ticks ? -1 : 1)).forEach(r => latest.set(r.name, r));
+  const list = Array.from(latest.values());
+  state.running = true; $('pvpMsg').textContent = 'Fitting ' + list.length + ' opponents from their replays…';
+  try {
+    const fits = await Pool.evalJobs(list.map(r => LBP.fitJob(p, r)));
+    state.opps = state.opps.filter(o => !o.replay);
+    list.forEach((r, i) => { const f = fits[i]; if (!f || f.failed) return;
+      state.opps.push({ name: r.name, replay: true, on: true, src: 'Replay: you ' + (r.won ? 'won' : 'lost') + ' in ' + r.turns + ' swings (model gives your replay build ' + Math.round(f.simWin * 100) + '%)',
+        spec: { names: r.names, perks: f.perks, alloc: f.alloc }, st: f.st, perkText: 'Guessed perks: ' + (f.perks.map(k => PERKS[k].name).join(' + ') || 'none found') + ' · points ' + allocText(f.alloc) }); });
+    const n = state.opps.filter(o => o.replay).length, exp = fits.reduce((a, f) => a + (f && f.simWin || 0), 0);
+    $('pvpMsg').textContent = n + ' opponents added' + (badN ? ', ' + badN + ' files skipped' : '') + '. Check on the fit: the model expects ' + exp.toFixed(1) + ' wins from these fights, you had ' + list.filter(r => r.won).length + '.';
+  } catch (e) { $('pvpMsg').textContent = e.message; }
+  state.running = false; renderOpps();
+}
+async function runPvp() {
+  if (state.running) return;
+  const p = state.profile, cfg = cfgFromForm(), on = state.opps.filter(o => o.on);
+  if (!on.length) { $('pvpMsg').textContent = 'Tick at least one opponent.'; return; }
+  Object.assign(cfg, { goal: 'pvp', potMode: 'none', pots: [], opps: on.map(o => o.spec), robust: $('pvpScore').value === 'robust', depth: $('pvpDepth').value,
+    oppInfo: on.map(o => ({ name: o.name, src: o.src, st: o.st, perkText: o.perkText })) });
+  const P = LBP.makePools(p, cfg), D = LBP.DEPTH[cfg.depth], np = P.pool[3].length;
+  const est = D.starts * (P.pool[0].length + P.pool[1].length + P.pool[2].length + P.pool[4].length + P.pool[5].length + (np * (np + 1) / 2 <= D.pairLimit ? np * (np + 1) / 2 : 2 * np) + P.nslots * P.perks.length + (cfg.alloc === 'free' ? 40 : 0)) * 1.8 + 250;
+  state.running = true; state.cancel = false; $('pvpRun').disabled = true; $('pvpStop').hidden = false; $('pvpProgress').hidden = false;
+  const t0 = performance.now(); let stage = 'Starting';
+  const tick = pr => { if (pr.stage) stage = pr.stage; $('pvpBar').style.width = Math.min(98, pr.done / est * 100).toFixed(1) + '%';
+    $('pvpText').textContent = stage + ' · ' + pr.done.toLocaleString('en-US') + ' builds tested · ' + Math.round((performance.now() - t0) / 1000) + ' s'; };
+  let res;
+  try { res = await LBP.optimise(p, cfg, Pool.evalJobs, tick, () => state.cancel); res.seconds = (performance.now() - t0) / 1000; } catch (e) { res = { error: e.message }; }
+  state.running = false; $('pvpRun').disabled = false; $('pvpStop').hidden = true; $('pvpProgress').hidden = true; $('pvpBar').style.width = '0';
+  $('pvpOut').innerHTML = resultHtml(res);
+}
+function pvpRestr() {
+  const c = cfgFromForm();
+  $('pvpRestr').textContent = 'Using the restrictions from the first tab: ' + ({ owned: 'only gear you own', market: 'owned + marketplace gear', all: 'every item in the game' })[c.itemSource] + ', ' +
+    (c.perkSource === 'owned' ? 'perks you own' : 'all perks') + ', ' + c.perkSlots + ' perk slots, ' + (c.alloc === 'save' ? 'current stat points' : 'free respec') +
+    (Object.keys(c.lock).length ? ', ' + Object.keys(c.lock).length + ' locked slots' : '') + (c.bannedItems.length ? ', ' + c.bannedItems.length + ' excluded items' : '') + '. Potions do not work in PvP.';
+}
+
 /* ------------------------------------------------------------------ wiring */
+$('pvpLoad').addEventListener('click', () => $('fileReplays').click());
+$('fileReplays').addEventListener('change', e => { const fl = Array.from(e.target.files); e.target.value = ''; if (fl.length) loadReplays(fl); });
+$('pvpOpps').addEventListener('change', e => { const i = e.target.dataset.i; if (i !== undefined) state.opps[+i].on = e.target.checked; });
+$('pvpRun').addEventListener('click', runPvp);
+$('pvpStop').addEventListener('click', () => { state.cancel = true; });
+
 $('goals').innerHTML = Object.keys(GOALS).map((g, i) => '<label class="opt"><input type="radio" name="goal" id="goal-' + g + '" value="' + g + '"' + (i ? '' : ' checked') + '><span>' + esc(GOALS[g].label) + '<span class="d">Scored by ' + esc(GOALS[g].unit) + '</span></span></label>').join('');
 $('itemList').innerHTML = LB.ALL.filter(i => i.rarity >= 2).map(i => '<option value="' + esc(i.itemName) + '">').join('');
 $('form').addEventListener('submit', e => { e.preventDefault(); run(); });
@@ -1819,9 +2265,10 @@ $('banAdd').addEventListener('click', () => { const v = $('banInput').value.trim
 $('banChips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b) { state.bans.splice(+b.dataset.i, 1); renderBans(); } });
 document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 function showTab(t) {
-  if (['optimise', 'compare', 'model'].indexOf(t) < 0) t = 'optimise';
+  if (['optimise', 'compare', 'pvp', 'model'].indexOf(t) < 0) t = 'optimise';
   document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === t ? 'true' : 'false'));
-  ['optimise', 'compare', 'model'].forEach(x => { $('pane-' + x).hidden = x !== t; });
+  ['optimise', 'compare', 'pvp', 'model'].forEach(x => { $('pane-' + x).hidden = x !== t; });
+  if (t === 'pvp') pvpRestr();
   try { history.replaceState(null, '', '#' + t); } catch (e) { /* not essential */ }
 }
 $('cmpAddEq').addEventListener('click', () => { state.cmp.push(equippedBuild('Equipped ' + (state.cmp.length + 1))); renderCmpCards(); });

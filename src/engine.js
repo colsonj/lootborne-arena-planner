@@ -36,6 +36,7 @@ const PERKS = {
   10: { name: 'Dragonhide', cost: 100, text: '+35% DEF, +15% max HP, -12% ATK.' },
   11: { name: 'Dying Fury', bit: 2, cost: 350, text: 'Below 40% HP: ATK x1.8.' },
   12: { name: 'Crimson Vow', bit: 4, cost: 180, text: 'Heal 3 HP per landed attack.' },
+  14: { name: "Rival's Calling", cost: 100, pvpOnly: true, pvp: { DMULT: 1.3 }, text: '+30% damage in PvP (its -5% in the arena is not modelled).' },
   13: { name: 'Reckless Abandon', cost: 350, x: { DMULT: 1.3, TMULT: 1.1 }, text: 'Deal x1.3 damage, take x1.1.' },
   15: { name: 'Aggression', cost: 100, text: '+6 ATK.' },
   16: { name: 'Guardian Angel', cost: 350, x: { ANGEL: 0.2 }, text: 'Entering a fight below 50% HP gives a shield of 20% max HP.' },
@@ -54,8 +55,9 @@ const PERKS = {
   30: { name: 'Instinctive Guard', cost: 350, text: '+0.5% DEF per point of PARRY (up to +27.5%).' },
   31: { name: 'Armor Piercer', bit: 16, cost: 350, text: 'Attacks ignore 35% of enemy PARRY and 35% of enemy DEF.' },
 };
-const PERK_IDS = Object.keys(PERKS).map(Number).sort((a, b) => a - b);
-const UNMODELLED_PERKS = { 14: "Rival's Calling", 26: 'Mirror Echo' };
+const PERK_IDS = Object.keys(PERKS).map(Number).filter(k => !PERKS[k].pvpOnly).sort((a, b) => a - b);
+const PVP_PERK_IDS = Object.keys(PERKS).map(Number).filter(k => k !== 16 && k !== 17 && k !== 24).sort((a, b) => a - b);
+const UNMODELLED_PERKS = { 26: 'Mirror Echo' };
 const SLOT_UNLOCK = [1, 10, 20, 40, 60];
 /* Potions: id from the save (ownedConsumableIds). kind: combat | loot | other. */
 const POTIONS = {
@@ -796,6 +798,295 @@ function loot(r, build, o) {
   return r;
 }
 
+
+/* ------------------------------------------------------------------ PvP (tools/pvpsim.c + pvp2.py) */
+const PVP_OFF = { CHUNT: 1, COUP: 1, ANGEL: 1 }, REFLECT_CAP = 0.25;
+const _FT = new Map();
+/* spec: { names[7], perks[], alloc[5] | stats{hp,atk,dfn,crit,par}, stacks } -> bound fighter */
+function fighter(spec) {
+  const key = JSON.stringify([spec.names, spec.perks, spec.alloc || null, spec.stats || null, spec.stacks || 0]);
+  let f = _FT.get(key); if (f) return f;
+  const K = (spec.perks || []).filter(k => PERKS[k]), g = gearOf(spec.names);
+  const st = spec.stats ? Object.assign({}, spec.stats) : totals(g, spec.alloc, K, []);
+  const p = new Float64Array(IDX.length);
+  for (const k in g.fx) p[I[k]] = g.fx[k];
+  p[I.HP] = st.hp; p[I.ATK] = st.atk; p[I.DFN] = st.dfn; p[I.CRIT] = st.crit; p[I.PAR] = st.par;
+  p[I.CAP] = K.indexOf(27) >= 0 ? 75 : CRIT_CAP;
+  for (const k of ['ea', 'ec', 'oc', 'op', 'fa', 'low', 'tb', 'cond']) p[I['N' + k.toUpperCase()]] = g[k].length;
+  let bits = 0;
+  for (const k of K) {
+    bits += PERKS[k].bit || 0; const x = Object.assign({}, PERKS[k].x || {}, PERKS[k].pvp || {});
+    for (const n in x) { if (PVP_OFF[n]) continue; p[I[n]] = ((n === 'DMULT' || n === 'TMULT') && p[I[n]]) ? p[I[n]] * x[n] : x[n]; }
+  }
+  p[I.PERKS] = bits;
+  if (spec.stacks && p[I.KILL_DMG] > 0) p[I.DMULT] = (p[I.DMULT] || 1.0) * (1 + spec.stacks * p[I.KILL_MAX] * p[I.KILL_DMG]);
+  const mods = []; for (const k of ['ea', 'ec', 'oc', 'op', 'fa']) for (const q of g[k]) for (const x of q) mods.push(x);
+  const fl = a => { const out = []; for (const r of a) for (const x of r) out.push(x); return Float64Array.from(out); };
+  const nea = g.ea.length, nec = g.ec.length, noc = g.oc.length, nop = g.op.length, nfa = g.fa.length;
+  f = { p, mods: Float64Array.from(mods), low: fl(g.low), tb: fl(g.tb), cond: fl(g.cond), st,
+        nea, nec, noc, nop, nfa, nlow: g.low.length, ntb: g.tb.length, ncond: g.cond.length, perks: bits,
+        mea: 0, mec: nea * MODW, moc: (nea + nec) * MODW, mop: (nea + nec + noc) * MODW, mfa: (nea + nec + noc + nop) * MODW,
+        maxhp: st.hp, healcap: cround(HEAL_CAP * st.hp), dmult: p[I.DMULT] > 0 ? p[I.DMULT] : 1, tmult: p[I.TMULT] > 0 ? p[I.TMULT] : 1, noheal: p[I.NOHEAL] > 0,
+        pend: new Float64Array(MAXPEND * 10), nextA: new Float64Array(16), nextC: new Float64Array(16), tbNext: new Float64Array(MAXTB), tbStack: new Int32Array(MAXTB),
+        regStart: new Float64Array(MAXLOW), regOnce: new Int32Array(MAXLOW), ptdExp: new Float64Array(48), debExp: new Float64Array(32) };
+  if (_FT.size > 3000) _FT.clear();
+  _FT.set(key, f); return f;
+}
+function fzero(f) { f.dealt = f.healed = f.plain = 0; f.landed = f.tried = f.ncrit = f.lbused = f.nplain = 0; }
+function freset(f) {
+  f.hp = f.maxhp; f.shield = 0; f.npend = 0;
+  for (let i = 0; i < f.nea && i < 16; i++) f.nextA[i] = Math.trunc(f.mods[f.mea + i * MODW]);
+  for (let i = 0; i < f.nec && i < 16; i++) f.nextC[i] = Math.trunc(f.mods[f.mec + i * MODW]);
+  for (let i = 0; i < f.ntb && i < MAXTB; i++) { f.tbNext[i] = f.tb[i * TBW]; f.tbStack[i] = 0; }
+  for (let i = 0; i < MAXLOW; i++) { f.regStart[i] = -1; f.regOnce[i] = 0; }
+  f.tAtk = f.tDef = f.tCrit = f.tPar = f.permDef = f.pdef = f.wrath = f.poison = f.immUntil = 0;
+  f.nptd = f.ndeb = f.pt = f.fhDone = f.fhAtk = f.hc1 = f.hc2 = f.halvePend = f.immArmed = f.mom = f.rip = 0;
+  f.firstN = f.p[I.FIRSTN_ABSORB] | 0; f.last = f.perks & P_LAST; f.attacks = f.crits = f.swings = 0;
+}
+function fheal(f, h) {
+  if (f.noheal || h <= 0 || f.hp <= 0) return;
+  if (h > f.healcap) h = f.healcap;
+  let n = f.hp + h; f.healed += h;
+  if (n > f.maxhp) { if (f.p[I.OVERHEAL] > 0) { f.shield += n - f.maxhp; if (f.shield > f.maxhp) f.shield = f.maxhp; } n = f.maxhp; }
+  f.hp = n;
+}
+function fpush(f, o) {
+  if (f.npend >= MAXPEND) return;
+  const b = f.npend++ * 10, m = f.mods; f.pend[b] = m[o + 1] < 1 ? 1 : m[o + 1];
+  for (let i = 1; i < 10; i++) f.pend[b + i] = m[o + 1 + i];
+}
+function sdm(turn) {
+  if (turn < 60) return 1.0;
+  const steps = turn < 200 ? 1 + Math.trunc((turn - 60) / 10) : 15 + Math.trunc((turn - 200) / 3);
+  const m = Math.pow(1.05, steps); return m > 1000 ? 1000 : m;
+}
+const mkLow = () => ({ atkPct: 0, defPct: 0, crit: 0, ls: 0, absorb: 0, atkFlat: 0, all: 0, dmgPerAtk: 0, regenPerAtk: 0, regenPerCrit: 0, atkLs: 0, permDef: 0, immuneCrit: 0, gcrit: 0 });
+const LA = mkLow(), LD = mkLow();
+function lowaggF(f, o) {
+  const r = f.hp / f.maxhp, low = f.low;
+  o.atkPct = o.defPct = o.crit = o.ls = o.absorb = o.atkFlat = o.all = o.dmgPerAtk = o.regenPerAtk = o.regenPerCrit = o.atkLs = o.permDef = 0; o.immuneCrit = 0; o.gcrit = 0;
+  for (let i = 0; i < f.nlow; i++) {
+    const b = i * LOWW;
+    if (r < low[b]) {
+      o.atkPct += low[b + 1]; o.defPct += low[b + 2]; o.crit += low[b + 3]; o.ls += low[b + 5]; o.absorb += low[b + 6]; o.atkFlat += low[b + 7];
+      o.all += low[b + 8]; o.dmgPerAtk += low[b + 9]; o.regenPerAtk += low[b + 10]; o.regenPerCrit += low[b + 11]; o.atkLs += low[b + 12];
+      if (low[b + 13] > 0) o.immuneCrit = 1; o.permDef += low[b + 14]; if (low[b + 15] > 0) o.gcrit = 1;
+    }
+  }
+  if (o.absorb > ABSORB_CAP) o.absorb = ABSORB_CAP;
+}
+function swing(A, D, turn, elapsed) {
+  const p = A.p, q = D.p;
+  lowaggF(A, LA); lowaggF(D, LD);
+  if (LA.permDef > A.permDef) A.permDef = LA.permDef;
+  if (LD.permDef > D.permDef) D.permDef = LD.permDef;
+  const sd = sdm(turn); let healA = LA.regenPerAtk, healD = 0, dealt = 0;
+  A.swings++; A.tried++;
+  {
+    const r = D.hp / D.maxhp, low = D.low;
+    for (let i = 0; i < D.nlow && i < MAXLOW; i++) {
+      const b = i * LOWW; if (low[b + 4] <= 0) continue;
+      const restOn = low[b + 18] > 0 && D.regStart[i] >= 0;
+      if (r < low[b] || restOn) {
+        if (D.regStart[i] < 0) D.regStart[i] = elapsed;
+        if (low[b + 17] > 0) { if (D.regOnce[i]) continue; D.regOnce[i] = 1; }
+        else if (low[b + 16] > 0 && elapsed - D.regStart[i] >= low[b + 16]) continue;
+        healD += low[b + 4];
+      }
+    }
+  }
+  const pierce = A.perks & P_PIERCE;
+  const lunge = p[I.LUNGE] > 0 && A.swings % 3 === 0, echo = p[I.ECHO] > 0 && A.swings % 5 === 0;
+  let atk = (1 + LA.atkPct) * p[I.ATK] + A.tAtk + LA.atkFlat + LA.all;
+  if (A.fhAtk) atk *= 1 + p[I.FH_ATKPCT];
+  let pp = q[I.PAR] > 55 ? 55 : q[I.PAR]; pp += D.tPar; if (pp > 55) pp = 55;
+  let epar = pp / 100.0 * (pierce ? 0.65 : 1.0) * (1 - p[I.PARRY_IGN]);
+  {
+    let un = 0;
+    for (let i = 0; i < A.npend; i++) if (A.pend[i * 10 + 8] > 0) un = 1;
+    for (let i = 0; i < A.nea && i < 16; i++) if (A.mods[A.mea + i * MODW + 9] > 0 && A.nextA[i] <= A.attacks + 1) un = 1;
+    if (un) epar = 0;
+  }
+  if (!lunge && !echo && rnd() < epar) {
+    healD += q[I.PARRY_HEAL];
+    A.hp -= cround(atk * q[I.PARRY_REFL]) + q[I.PARRY_COUNTER];
+    for (let i = 0; i < D.nop; i++) fpush(D, D.mop + i * MODW);
+    D.pdef += q[I.PARRY_DEF_REST]; if (D.pdef > 40 * q[I.PARRY_DEF_REST]) D.pdef = 40 * q[I.PARRY_DEF_REST];
+    if (q[I.PTD_AMT] > 0 && D.nptd < 48) D.ptdExp[D.nptd++] = elapsed + q[I.PTD_SEC];
+    if (q[I.RIPOSTE] > 0) D.rip = 2;
+  } else {
+    A.attacks++;
+    if (A.attacks === 1) for (let i = 0; i < A.nfa; i++) fpush(A, A.mfa + i * MODW);
+    for (let i = 0; i < A.nea && i < 16; i++) if (A.attacks >= A.nextA[i]) {
+      fpush(A, A.mea + i * MODW); A.nextA[i] += Math.trunc(A.mods[A.mea + i * MODW]); healA += A.mods[A.mea + i * MODW + 10];
+    }
+    let aPct = 0, aFlat = 0, aIgn = 0, aOcrit = 0, aCbon = 0, aFull = 0, aMult = 0; const pe = A.pend;
+    for (let i = 0; i < A.npend; i++) {
+      const b = i * 10; aPct += pe[b + 1]; aFlat += pe[b + 2]; if (pe[b + 3] > aIgn) aIgn = pe[b + 3];
+      if (pe[b + 4] > aOcrit) aOcrit = pe[b + 4]; aCbon += pe[b + 5]; if (pe[b + 6] > 0) aFull = 1; if (pe[b + 7] > aMult) aMult = pe[b + 7];
+    }
+    if ((A.perks & P_FURY) && A.hp < 0.4 * A.maxhp) atk *= p[I.FURYM] > 0 ? p[I.FURYM] : 1.8;
+    let d = atk * (0.8 + 0.4 * rnd()) * A.dmult;
+    if (p[I.MOMENTUM] > 0) { d *= 1 + p[I.MOMENTUM] * A.mom; if (A.mom < 10) A.mom++; }
+    const cap = p[I.CAP];
+    let cc = p[I.CRIT] + LA.crit; if (cc > cap) cc = cap; cc += A.tCrit; if (cc > cap) cc = cap; cc += LA.all; if (cc > cap) cc = cap;
+    const ch = aOcrit > 0 ? aOcrit : (aCbon * 100 + cc + A.wrath) / 100.0 * q[I.ECC];
+    let c = rnd() < ch;
+    if (p[I.FIRST_CRIT] > 0 && A.attacks === 1) c = true;
+    if (LA.gcrit) c = true;
+    if (p[I.NOCRIT] > 0) c = false;
+    if (A.perks & P_WRATH) { if (c) A.wrath = 0; else { A.wrath += 10; if (A.wrath > 50) A.wrath = 50; } }
+    if (c && !LD.immuneCrit) d *= 1 + q[I.ECM];
+    if (aMult > 0) d *= aMult;
+    if (aPct > 0) d *= 1 + aPct;
+    if (lunge) d *= 1 + p[I.LUNGE];
+    if (echo) d *= 1 + p[I.ECHO];
+    if (A.rip > 0) { d *= 1 + p[I.RIPOSTE]; A.rip--; }
+    {
+      const r = D.hp / D.maxhp, cd = A.cond;
+      for (let i = 0; i < A.ncond; i++) { const b = i * CDW; if ((cd[b + 1] > 0 && cd[b] < r) || (cd[b + 1] <= 0 && r < cd[b])) d *= 1 + cd[b + 2]; }
+    }
+    let ed = ((1 + LD.defPct) * q[I.DFN] + D.tDef) * (1 + D.permDef) + LD.all + D.pdef;
+    if (D.nptd) { let k = 0; for (let i = 0; i < D.nptd; i++) if (D.ptdExp[i] > elapsed) D.ptdExp[k++] = D.ptdExp[i]; D.nptd = k; ed += q[I.PTD_AMT] * D.nptd; }
+    if (A.ndeb) { let k = 0; for (let i = 0; i < A.ndeb; i++) if (A.debExp[i] > turn) A.debExp[k++] = A.debExp[i]; A.ndeb = k; ed -= p[I.DEBUFF_AMT] * A.ndeb; }
+    if (ed < 0) ed = 0;
+    let ign = aIgn + p[I.DEF_IGN] + (pierce ? 0.35 : 0.0); if (ign > 0.5) ign = 0.5;
+    if (aFull > 0) ed = 0; else ed *= 1 - ign;
+    const flatd = aFlat + LA.dmgPerAtk + p[I.FLAT];
+    let dmg = cround((flatd + d) * 60.0 / (ed + 60.0) * sd * D.tmult); if (dmg < 1) dmg = 1;
+    { let k = 0; for (let i = 0; i < A.npend; i++) { const b = i * 10; pe[b] -= 1; if (pe[b] >= 1) { if (k !== i) pe.copyWithin(k * 10, b, b + 10); k++; } } A.npend = k; }
+    if (q[I.IMM_SEC] > 0) {
+      if (!D.immArmed && D.hp / D.maxhp < q[I.IMM_THR]) { D.immArmed = 1; D.immUntil = elapsed + q[I.IMM_SEC]; }
+      if (D.immArmed && elapsed < D.immUntil) dmg = 0;
+    }
+    if (dmg > 0 && D.halvePend > 0) { D.halvePend--; dmg = Math.floor(dmg / 2); if (dmg < 1) dmg = 1; }
+    if (LD.absorb > 0) dmg = cround((1 - LD.absorb) * dmg);
+    if (!D.fhDone && (q[I.FH_ABSORB] > 0 || q[I.FH_COUNTER] > 0 || q[I.FH_HEAL] > 0 || q[I.FH_ATKPCT] > 0)) {
+      D.fhDone = 1; if (q[I.FH_ABSORB] > 0) dmg = cround(dmg * (1 - q[I.FH_ABSORB]));
+      A.hp -= q[I.FH_COUNTER]; healD += q[I.FH_HEAL]; if (q[I.FH_ATKPCT] > 0) D.fhAtk = 1;
+    }
+    {
+      let kind = 0;
+      if (q[I.HITN1_N] > 0) { if (++D.hc1 >= q[I.HITN1_N]) { D.hc1 = 0; if (q[I.HITN1_KIND] > kind) kind = q[I.HITN1_KIND]; healD += q[I.HITN_HEAL]; } }
+      if (q[I.HITN2_N] > 0) { if (++D.hc2 >= q[I.HITN2_N]) { D.hc2 = 0; if (q[I.HITN2_KIND] > kind) kind = q[I.HITN2_KIND]; healD += q[I.HITN_HEAL]; } }
+      if (kind >= 1) dmg = 0; else { if (kind > 0) dmg = Math.floor(dmg / 2); if (dmg > 0 && D.firstN > 0) { D.firstN--; dmg = 0; } }
+    }
+    if (q[I.BULWARK] > 0 && D.hp < 0.25 * D.maxhp) dmg = cround(dmg * (1 - q[I.BULWARK]));
+    if (D.shield > 0 && dmg > 0) { const ab = D.shield < dmg ? D.shield : dmg; D.shield -= ab; dmg -= ab; }
+    if (dmg > 0) {
+      let rf = q[I.REFLECT] + q[I.PREFLECT]; if (rf > REFLECT_CAP) rf = REFLECT_CAP;
+      if (rf > 0) A.hp -= cround(rf * dmg);
+      if (q[I.REFL_HEAL] > 0) healD += cround(dmg * q[I.REFL_HEAL]);
+    }
+    if (c) dmg += p[I.CRIT_BONUS];
+    D.hp -= dmg; dealt = dmg; A.dealt += dmg; A.landed++;
+    if (!c && aFull <= 0 && dmg > 0 && sd <= 1.0) { A.plain += dmg; A.nplain++; }
+    let ls = p[I.PLS] + p[I.BCURSE] + LA.ls + p[I.LIFESTEAL] + LA.atkLs + (c ? p[I.CRIT_LS] : 0); if (ls > LS_CAP) ls = LS_CAP;
+    healA += cround(dmg * ls) + ((A.perks & P_VOW) && dmg > 0 ? 3 : 0);
+    if (c) {
+      A.crits++; A.ncrit++; healA += p[I.CRIT_HEAL] + LA.regenPerCrit;
+      for (let i = 0; i < A.noc; i++) fpush(A, A.moc + i * MODW);
+      if (p[I.DEBUFF_AMT] > 0 && A.ndeb < 32) A.debExp[A.ndeb++] = turn + p[I.DEBUFF_TURNS];
+      for (let i = 0; i < A.nec && i < 16; i++) if (A.crits >= A.nextC[i]) { fpush(A, A.mec + i * MODW); A.nextC[i] += Math.trunc(A.mods[A.mec + i * MODW]); }
+      if (p[I.CRIT_HALVE] > 0) A.halvePend++;
+      if (A.perks & P_VENOM) { D.poison += 28; D.pt = 8; }
+      if (p[I.POISON_TOTAL] > 0) { if (p[I.POISON_TOTAL] > D.poison) D.poison = p[I.POISON_TOTAL]; if (p[I.POISON_TURNS] > D.pt) D.pt = p[I.POISON_TURNS] | 0; }
+    }
+    if (D.hp <= 0 && D.last) { D.hp = Math.ceil(0.25 * D.maxhp); D.last = 0; D.lbused++; }
+  }
+  if (D.pt && D.hp > 0) { let t = Math.floor(D.poison / D.pt); if (t < 1) t = 1; D.hp -= t; D.poison -= t; D.pt--; }
+  if (A.pt && A.hp > 0) { let t = Math.floor(A.poison / A.pt); if (t < 1) t = 1; A.hp -= t; A.poison -= t; A.pt--; }
+  if (A.hp > 0) fheal(A, healA);
+  if (D.hp > 0) fheal(D, healD);
+  if (p[I.BCURSE] > 0 && dealt > 0) { A.hp -= cround(0.11 * dealt); if (A.hp < 1) A.hp = 1; }
+  if (A.hp <= 0 && A.last) { A.hp = Math.ceil(0.25 * A.maxhp); A.last = 0; A.lbused++; }
+}
+function fticks(f, elapsed) {
+  for (let i = 0; i < f.ntb && i < MAXTB; i++) {
+    const b = i * TBW, q = f.tb;
+    if (f.tbNext[i] <= elapsed + 1e-4) {
+      f.tbNext[i] += q[b];
+      const st = q[b + 2] | 0;
+      if (st === 5) { fheal(f, q[b + 1]); continue; }
+      if (q[b + 3] > 0 && f.tbStack[i] >= q[b + 3]) continue;
+      f.tbStack[i]++;
+      if (st === 0) f.tAtk += q[b + 1]; else if (st === 1) f.tDef += q[b + 1]; else if (st === 2) f.tCrit += q[b + 1]; else if (st === 3) f.tPar += q[b + 1];
+      else if (st === 4) { f.tAtk += q[b + 1]; f.tDef += q[b + 1]; f.tCrit += q[b + 1]; f.tPar += q[b + 1]; }
+    }
+  }
+  if (f.p[I.BULWARK] > 0 && !f.noheal && f.hp < 0.25 * f.maxhp) { f.hp += 4; if (f.hp > f.maxhp) f.hp = f.maxhp; }
+}
+/* n fights; X swings first when first is truthy. A double KO counts as a loss for X. */
+function duel(X, Y, n, seed, first) {
+  if (X === Y) throw new Error('duel needs two distinct fighters');
+  seedRng(seed); fzero(X); fzero(Y);
+  let wins = 0, turns = 0, sdn = 0;
+  for (let k = 0; k < n; k++) {
+    freset(X); freset(Y);
+    let turn = 0, elapsed = 0, res = -1; const a = first ? X : Y, b = first ? Y : X;
+    while (res < 0) {
+      turn++; swing(a, b, turn, elapsed);
+      if (X.hp <= 0) res = 0; else if (Y.hp <= 0) res = 1;
+      if (res >= 0) break;
+      elapsed += 0.5;
+      turn++; swing(b, a, turn, elapsed);
+      if (X.hp <= 0) res = 0; else if (Y.hp <= 0) res = 1;
+      if (res >= 0) break;
+      elapsed += 0.5;
+      fticks(X, elapsed); fticks(Y, elapsed);
+      if (turn > 2000) res = 0;
+    }
+    wins += res; turns += turn; if (turn >= 60) sdn++;
+  }
+  return { win: wins / n, turns: turns / n, xdpl: X.dealt / (X.landed || 1), xland: X.landed / (X.tried || 1), xcrit: X.ncrit / (X.landed || 1),
+           ydpl: Y.dealt / (Y.landed || 1), yland: Y.landed / (Y.tried || 1), ycrit: Y.ncrit / (Y.landed || 1), sd: sdn / n, xheal: X.healed / n, yheal: Y.healed / n,
+           xlb: X.lbused / n, ylb: Y.lbused / n, xplain: X.plain / (X.nplain || 1), yplain: Y.plain / (Y.nplain || 1) };
+}
+/* Fit a replay opponent (tools/pvpfit2.py): gear and max HP are known, perks and stat points are guessed from the swings. */
+function fitOpponent(job) {
+  const o = job.obs, names = job.names, g = gearOf(names), POINTS = Math.max(0, ((job.level || 60) - 1) * 5);
+  const me = fighter(job.me);
+  const binll = (k, n, p) => { p = Math.min(0.999, Math.max(0.001, p)); return k * Math.log(p) + (n - k) * Math.log(1 - p); };
+  let best = null;
+  for (const hpk of [null, 10, 9]) for (const ig of [0, 1]) for (const du of [0, 1]) for (const rival of [0, 1]) {
+    const K = [hpk, ig ? 30 : null, du ? 22 : null, rival ? 14 : null, (o.lb === true || o.lb === null) ? 29 : null].filter(Boolean);
+    const base = totals(g, [0, 0, 0, 0, 0], K, []).hp, per = (totals(g, [100, 0, 0, 0, 0], K, []).hp - base) / 100;
+    let h = pyRound((job.maxHp - base) / per);
+    if (h < -3 || h > POINTS + 3) continue;
+    h = Math.min(POINTS, Math.max(0, h)); const rest = POINTS - h;
+    for (let a = 0; a < 5; a++) for (let b = 0; b < 5; b++) for (let c = 0; c < 5; c++) for (let d = 0; d < 5; d++) {
+      if (a + b + c + d !== 4) continue;
+      const al = [h, pyRound(rest * a / 4), pyRound(rest * b / 4), pyRound(rest * c / 4), pyRound(rest * d / 4)];
+      const f = fighter({ names, perks: K, alloc: al }), r = duel(me, f, 150, 3, 1);
+      let ll = binll(o.my_par, o.n_my, 1 - r.xland) + binll(o.th_crit, o.th_land, r.ycrit);
+      if (o.my_land >= 3) ll -= 0.5 * Math.pow(Math.log(Math.max(1, r.xdpl) / o.my_dpl) / (0.2 + 0.35 / Math.sqrt(o.my_land)), 2);
+      if (o.n_plain >= 2) ll -= 0.5 * Math.pow(Math.log(Math.max(1, r.xplain) / o.plain) / (0.1 + 0.3 / Math.sqrt(o.n_plain)), 2);
+      if (o.th_land >= 3) ll -= 0.5 * Math.pow(Math.log(Math.max(1, r.ydpl) / o.th_dpl) / (0.12 + 0.35 / Math.sqrt(o.th_land)), 2);
+      ll -= 0.3 * K.filter(k => k === 22 || k === 14).length;
+      if (best === null || ll > best.ll) best = { ll, perks: K, alloc: al };
+    }
+  }
+  if (!best) return { failed: true };
+  const f = fighter({ names, perks: best.perks, alloc: best.alloc }), r = duel(me, f, 1500, 9, 1);
+  return { perks: best.perks, alloc: best.alloc, st: Object.assign({}, f.st), simWin: r.win, ll: best.ll };
+}
+/* job: { type:'pvp', build, opps:[spec], n, seed, robust, detail } */
+function runPvp(job) {
+  const b = job.build, K = b.perks.filter(k => PERKS[k]);
+  const X = fighter({ names: b.names, perks: K, alloc: b.alloc, stacks: job.stacks === undefined ? 0.5 : job.stacks });
+  const rs = job.opps.map(s => duel(X, fighter(s), job.n, job.seed, 1)), wins = rs.map(r => r.win);
+  const avg = a => a.reduce((x, y) => x + y, 0) / (a.length || 1);
+  let score = avg(wins);
+  if (job.robust) { const w = wins.slice().sort((x, y) => x - y); score = 0.5 * score + 0.5 * avg(w.slice(0, Math.max(1, Math.ceil(w.length / 3)))); }
+  const res = { score };
+  if (job.detail) {
+    const X0 = fighter({ names: b.names, perks: K, alloc: b.alloc, stacks: 0 });
+    const def = job.opps.map(s => duel(X0, fighter(s), job.n, job.seed + 1, 0));
+    res.r = { wins, mean: avg(wins), min: Math.min.apply(null, wins), def: def.map(r => r.win), defMean: avg(def.map(r => r.win)), st: X.st, duels: rs, unparsed: gearOf(b.names).unparsed };
+  }
+  return res;
+}
+
 /* ------------------------------------------------------------------ goals */
 const GOALS = {
   push: { label: 'Push the highest wave', unit: 'max wave', short: 'Max wave',
@@ -803,6 +1094,7 @@ const GOALS = {
   mythic: { label: 'Farm Mythics', unit: 'mythic-equivalents / real h', short: 'Mythic-eq / h', score: r => r.me, fmt: v => v.toFixed(2) + ' ME/h' },
   ascended: { label: 'Farm Ascended', unit: 'Ascended drops / real h', short: 'Ascended / h', score: r => r.asc, fmt: v => v.toFixed(3) + ' /h' },
   bloodmarks: { label: 'Farm Bloodmarks', unit: 'Bloodmarks / real h', short: 'Bloodmarks / h', score: r => r.bm, fmt: v => v.toFixed(0) + ' BM/h' },
+  pvp: { label: 'PvP win rate', unit: 'win rate attacking first, against the opponent pool', short: 'PvP win rate', pvp: true, score: r => r.mean, fmt: v => (v * 100).toFixed(0) + '%' },
   xp: { label: 'Farm XP', unit: 'XP / real h', short: 'XP / h', score: r => r.xp_rh, fmt: v => (v / 1e6).toFixed(2) + 'M XP/h' },
 };
 
@@ -819,13 +1111,15 @@ function summarize(r) {
 }
 /* job: { build, o, goal, detail } -> { score, r? } */
 function runJob(job) {
+  if (job.type === 'pvp') return runPvp(job);
+  if (job.type === 'fit') return fitOpponent(job);
   const r = simulate(job.build, job.o);
   const res = { score: GOALS[job.goal].score(r) };
   if (job.detail) res.r = summarize(r);
   return res;
 }
 
-return { IDX, I, ALL, BYNAME, BYID, PERKS, PERK_IDS, UNMODELLED_PERKS, SLOT_UNLOCK, POTIONS, POTION_NAMES, POTION_BY_ID, ELEM_NAME, RARITY, SLOT, ORDER,
+return { PVP_PERK_IDS, fighter, duel, fitOpponent, IDX, I, ALL, BYNAME, BYID, PERKS, PERK_IDS, UNMODELLED_PERKS, SLOT_UNLOCK, POTIONS, POTION_NAMES, POTION_BY_ID, ELEM_NAME, RARITY, SLOT, ORDER,
          POS_NAME, GOALS, BASE, PT: [HP_PT, ATK_PT, DEF_PT, CRIT_PT, PARRY_PT], gear, gearOf, totals, bonuses, simulate, summarize, runJob, isShield,
          waveScale, reqLevel, ROWS, BLU, DISMANTLE };
 })(typeof LB_DATA !== 'undefined' ? LB_DATA : (typeof globalThis !== 'undefined' ? globalThis.LB_DATA : undefined));
