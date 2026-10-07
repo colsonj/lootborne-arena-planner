@@ -115,6 +115,19 @@ td.n, th.n { text-align: right; white-space: nowrap; }
 .prose { max-width: 72ch; display: flex; flex-direction: column; gap: 12px; } .prose ul { margin: 0; padding-left: 20px; }
 .err { color: var(--bad); }
 
+.prose.wide { max-width: 100ch; }
+.prose h3 { margin-top: 6px; }
+.prose code { font: .86em var(--f-mono); background: var(--panel2); padding: 1px 5px; border-radius: 3px; }
+.prose pre { font: .8rem/1.5 var(--f-mono); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0; }
+.prose pre code { background: none; padding: 0; font-size: inherit; }
+.prose ol { margin: 0; padding-left: 22px; }
+.pill.ok { border-color: var(--good); color: var(--good); } .pill.inf { border-color: var(--warn); color: var(--warn); }
+details.evid { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 10px 14px; }
+details.evid > summary { cursor: pointer; font: 600 .95rem var(--f-display); }
+details.evid .inner { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; min-width: 0; }
+details.evid details > summary { cursor: pointer; font-size: .9rem; }
+details.evid details > pre { margin-top: 8px; }
+
 </style>
 <div class="wrap">
   <header class="top">
@@ -139,6 +152,7 @@ td.n, th.n { text-align: right; white-space: nowrap; }
     <button role="tab" id="tab-compare" aria-selected="false" data-tab="compare" type="button">Compare builds</button>
     <button role="tab" id="tab-pvp" aria-selected="false" data-tab="pvp" type="button">PvP matchups</button>
     <button role="tab" id="tab-model" aria-selected="false" data-tab="model" type="button">How it works</button>
+    <button role="tab" id="tab-ascended" aria-selected="false" data-tab="ascended" type="button">Ascended drops</button>
   </nav>
 
   <main id="pane-optimise" class="bench">
@@ -268,6 +282,345 @@ td.n, th.n { text-align: right; white-space: nowrap; }
         <li>Sector clears are not covered.</li>
         <li>PvP: both sides use the same swing rules with every item effect and perk, no element bonus, reflect capped at 25%, and sudden death from swing 60. Win rates come out too high and opponents are fitted guesses; the PvP tab lists its limits in full.</li>
       </ul>
+    </div>
+  </main>
+
+  <main id="pane-ascended" hidden>
+    <div class="prose wide">
+      <h2>Do drop rate or item quality stats affect Ascended drops?</h2>
+      <p><b>No.</b> The milestone roll that hands out Ascended items reads nothing about your character: not "bonus item chance" gear, not "higher rarity drop chance" gear, not Seeker's Luck or any other potion, not your level, perks or stat points. The odds depend on the wave number only. This page shows the decompiled code that proves it and gives the steps to check it yourself.</p>
+
+      <h3>What actually decides it</h3>
+      <ul>
+        <li><b>New-record milestones.</b> Finish a wave that is a multiple of 5 for the first time ever (wave above your record) and you get one item from the table below. The roll is Epic, Legendary, Mythic or Ascended; the Ascended share is the remainder.</li>
+        <li><b>Reclears.</b> Finish a multiple-of-5 wave at or below your record and there is a small Ascended chance: one fifth of the milestone share, capped at 1%. That is 0.4% on waves 16 to 39 and 1% from wave 40. Nothing else can drop on a reclear.</li>
+        <li><b>The wave-40 boss.</b> Beating it the first time gives an Ascended item once; bosses 10, 20 and 30 give a Mythic once.</li>
+        <li><b>Normal kills never give Ascended.</b> The per-kill loot table tops out at Mythic, and the "higher rarity" promotion is capped at that table's top, so it cannot push a Mythic to Ascended.</li>
+        <li><b>Which Ascended you get is a uniform pick</b> among the Ascended templates, with one re-roll rule: it avoids repeating the last item that dropped in the same slot.</li>
+        <li><b>No pity, no duplicate protection, no once-per-item rule.</b> The only gate is "wave above record".</li>
+      </ul>
+      <div class="tw"><table>
+        <thead><tr><th>Milestone wave</th><th class="n">Epic</th><th class="n">Legendary</th><th class="n">Mythic</th><th class="n">Ascended</th><th class="n">Reclear Ascended</th></tr></thead>
+        <tbody>
+          <tr><td>5, 10, 15</td><td class="n">57%</td><td class="n">43%</td><td class="n">0%</td><td class="n">0%</td><td class="n">0%</td></tr>
+          <tr><td>20 to 35</td><td class="n">55%</td><td class="n">35%</td><td class="n">8%</td><td class="n">2%</td><td class="n">0.4%</td></tr>
+          <tr><td>40 to 55</td><td class="n">23%</td><td class="n">45%</td><td class="n">22%</td><td class="n">10%</td><td class="n">1%</td></tr>
+          <tr><td>60 and up</td><td class="n">10%</td><td class="n">36%</td><td class="n">34%</td><td class="n">20%</td><td class="n">1%</td></tr>
+        </tbody>
+      </table></div>
+      <p class="small muted">Wave bands in the code are 1 to 15, 16 to 39, 40 to 59 and 60 up; milestones only land on multiples of 5, so the table lists those. Drop-rate gear and potions still matter for ordinary kills: they raise the chance that a kill drops anything (cap +28%), and higher-rarity gear promotes one tier (cap +24%). They are worth using for Mythic farming, just not for Ascended.</p>
+
+      <details class="evid">
+        <summary>The code, for anyone who wants to check the claim</summary>
+        <div class="inner">
+          <p>Client build 3 (Unity 6000.3, IL2CPP), stubs from Cpp2IL, bodies from Ghidra. Field offsets come from the Cpp2IL stubs; the hex float constants are standard IEEE singles.</p>
+          <div class="tw"><table>
+            <thead><tr><th>Claim</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td><code>CombatManager.MilestonePcts</code>, <code>MilestoneAscendedPct</code> and <code>RollMilestoneRarity</code> read one value that is not a parameter: the static <code>ItemGenerator.ArenaLegacyDropTables</code>. No PlayerState, singleton, consumable or equipped effect.</td><td><span class="pill ok">confirmed</span></td></tr>
+              <tr><td>After the rarity is rolled nothing changes it. The two drop gates return early when <code>PlayerState.endlessMode</code> is true, and the milestone code only runs then. The template pick is uniform and <code>ItemInstance.FromTemplate</code> copies the template's stats as they are. There are no affixes, stat rolls, item levels or rerolls anywhere in the item generator.</td><td><span class="pill ok">confirmed</span></td></tr>
+              <tr><td>"Bonus item chance" gear and the potion field <code>dropRateBonus</code> are read in exactly one place: the per-kill drop-or-not roll. "Higher rarity drop chance" gear and the potion flag <code>higherRarityBonus</code> are read in exactly one place: the +1 promotion in <code>GenerateDropItem</code>, capped by <code>PromotionCap</code> (Mythic in the arena).</td><td><span class="pill ok">confirmed</span></td></tr>
+              <tr><td>Ascended sources are milestone, reclear and the wave-40 boss. Regular arena rows have five columns (Common to Mythic) and sector tables have no Ascended field.</td><td><span class="pill ok">confirmed</span> <span class="pill inf">boss values inferred</span></td></tr>
+              <tr><td>No ownership or uniqueness check. <code>ARENA_MILESTONE_ONCE_PER_WAVE</code> is a C# <code>const</code>, folded at compile time; its only trace is the <code>maxWaveRecord &lt; wave</code> test.</td><td><span class="pill ok">confirmed</span> <span class="pill inf">const inferred</span></td></tr>
+              <tr><td><code>ArenaLegacyDropTables</code> is written only by the static constructor (false) and by the QA routine <code>ArenaSimQA.BandBoundaries</code>, which sets it true and restores it. Nothing in the shipped binary calls <code>ArenaSimQA.Run</code>.</td><td><span class="pill ok">confirmed</span></td></tr>
+            </tbody>
+          </table></div>
+
+          <h3>MilestonePcts, the whole body</h3>
+          <p>RVA 0x226580. The only memory read is <code>ItemGenerator</code> static slot <code>+0x10</code>, which the stub names <code>ArenaLegacyDropTables</code>. Everything after that is comparisons against <code>wave</code> and constant stores.</p>
+<pre><code>void MilestonePcts(int wave, float *epic, float *leg, float *myth)
+{
+  // runtime init and class-constructor check, present in every IL2CPP method
+  if (cRam00000001837e8a4d == '\0') { FUN_1829c5970(0x1835f2040); cRam00000001837e8a4d = '\x01'; }
+  if (*(int *)(lRam00000001835f2040 + 0xe4) == 0) { func_0x0001829c5cb0(lRam00000001835f2040); }
+
+  if (*(char *)(*(longlong *)(lRam00000001835f2040 + 0xb8) + 0x10) == '\0') {   // ItemGenerator.ArenaLegacyDropTables
+    if (0x3b &lt; wave) { *epic = 0x41200000 /*10*/; *leg = 0x42100000 /*36*/; *myth = 0x42080000 /*34*/; return; }
+    if (0x27 &lt; wave) { *epic = 0x41b80000 /*23*/; *leg = 0x42340000 /*45*/; *myth = 0x41b00000 /*22*/; return; }
+    if (wave &lt; 0x10) { *epic = 0x42640000 /*57*/; *leg = 0x422c0000 /*43*/; *myth = 0;                 return; }
+  } else {                                                                       // legacy table, QA only
+    if (0x2c &lt; wave) { *epic = 0;          *leg = 0x41900000 /*18*/; *myth = 0x42500000 /*52*/; return; }
+    if (0x1d &lt; wave) goto band_10_36_34;
+    if (0xe  &lt; wave) goto band_23_45_22;
+  }
+  *epic = 0x425c0000 /*55*/; *leg = 0x420c0000 /*35*/; *myth = 0x41000000 /*8*/;
+}</code></pre>
+          <p><code>MilestoneAscendedPct</code> (0x226440) is the same ladder followed by <code>max(0, 100 - epic - leg - myth)</code>; it never touches <code>this</code>. <code>RollMilestoneRarity</code> (0x22BB80) is the same ladder, then:</p>
+<pre><code>  float[] arr = new float[3] { epic, leg, myth };
+  int[] cum = ItemGenerator.ToCumBp(arr, 4);          // cumulative basis points; bucket 4 is forced to 10000 = the Ascended remainder
+  return PortableDropRng.PickCumBp(ref rng, cum) + 2;  // 0..3 -&gt; Epic(2), Legendary(3), Mythic(4), Ascended(5)</code></pre>
+
+          <h3>From rarity to item</h3>
+<pre><code>// CombatManager.GenerateArenaMilestoneDrop (0x224C50), every call it makes, in order
+gen  = get_ActiveItemGenerator();                 if (gen == null) { Debug.LogWarning(...); return null; }
+uid  = ActivePlayerState.GenerateUid();
+seed = NextDropSeed(DropSeedSource 4, wave);      // seeded rng when the run has a seed, else ItemGenerator.NewUnseededRng()
+rar  = RollMilestoneRarity(wave, ref rng);
+item = gen.GenerateItem(rar, uid, applyDropGates: true, enemyLevel: 0);
+item = ItemGenerator.Timbra(item, seed);          // writes item.dropSeed only
+item.isNew = true;  return item;
+
+// ItemGenerator.GenerateItem (0x1D0DC0)
+if (GameManager.IsDemo &amp;&amp; (rarity == 4 || rarity == 5)) rarity = 3;
+if (applyDropGates) { rarity = ApplyDropProgressionGate(rarity); rarity = ApplyOverlevelDropDampening(rarity, enemyLevel); }
+pool = templates.Where(t =&gt; t.rarity == rarity &amp;&amp; !t.isBossExclusive);      // closure fields +0x2c, +0x49
+t = pool[UnityEngine.Random.Range(0, pool.Count)];
+// up to 8 rerolls while t.id == ps.pityLastDropBySlot[t.slot]
+ps.pityLastDropBySlot[t.slot] = t.id;
+return ItemInstance.FromTemplate(t, uid);          // copies templateId, name, slot, rarity, category, hp, atk, def, crit, parry, effects
+
+// ItemGenerator.ApplyDropProgressionGate (0x1CF860), first real statement
+if (*(char *)(ps + 0x119) != 0) return rolled;    // PlayerState.endlessMode: arena -&gt; untouched
+// ItemGenerator.ApplyOverlevelDropDampening (0x1CFC20)
+if (*(char *)(ps + 0x119) == 0) { ...demotion... }  // only outside the arena
+
+// CombatManager.ApplyBattleOutcome, the branch that contains the milestone call
+if (ps.endlessMode == 0 || enemy.isPvp) { /* sector and PvP */ }
+else {
+  if (ps.waveKillCount &gt; 9 &amp;&amp; !ArenaBossPending(ps, wave)) {
+    ps.waveKillCount = 0;
+    bool first = wave &gt;= 1 &amp;&amp; wave % 5 == 0 &amp;&amp; ps.maxWaveRecord &lt; wave;
+    if (first  &amp;&amp; (it = GenerateArenaMilestoneDrop(wave)) != null) ItemGrant.Grant(ps, it, 4 /*ArenaMilestone*/, false);
+    if (!first &amp;&amp; wave &lt;= ps.maxWaveRecord &amp;&amp; (it = GenerateArenaReclearDrop(wave)) != null) ItemGrant.Grant(ps, it, 11, false);
+    if (ps.maxWaveRecord &lt; wave) ps.maxWaveRecord = wave;
+    ps.waveIndex = wave + 1;
+  }
+}
+
+// CombatManager.GenerateArenaReclearDrop (0x224ED0)
+asc = max(0, 100 - epic - leg - myth);  chance = min(asc * 0.2, 1.0);
+if (chance &gt; 0 &amp;&amp; UnityEngine.Random.value * 100 &lt; chance) return gen.GenerateItem(5, uid, false, 0);   // no gates, no stats
+return null;
+
+// ItemGrant.Grant (0x1D24F0): sets grantSource, inventory cap (150 / 200 / 300 by level), List.Add. No lookup of what you own.</code></pre>
+
+          <h3>Where the stats are read</h3>
+          <p>Every call site in the binary of the two calculators, from the ISIL call graph. None is on the milestone or reclear path.</p>
+          <div class="tw"><table>
+            <thead><tr><th>Reader</th><th>What it reads</th><th>Used for</th></tr></thead>
+            <tbody>
+              <tr><td><code>CombatManager.ApplyBattleOutcome</code></td><td><code>StatsCalculator.CalcBonusDropChance</code> ("+N% bonus item chance", cap <code>BONUS_ITEM_CHANCE_CAP</code>), <code>ConsumableModifiers.dropRateBonus</code>, <code>SecondWindSystem.DropMultiplier</code>, <code>pityThresholdOverride</code></td><td>Per-kill roll: <code>DropMultiplier × (enemy.dropChance + bonusItemChance + dropRateBonus)</code>, then <code>GenerateDropItem</code></td></tr>
+              <tr><td><code>CombatManager.GenerateDropItem</code></td><td><code>StatsCalculator.CalcHigherRarityDropChance</code> ("+N% higher rarity drop chance", cap <code>HIGHER_RARITY_DROP_CAP</code>), <code>ConsumableModifiers.higherRarityBonus</code></td><td>+1 rarity promotion if <code>item.rarity &lt; PromotionCap(sector, endless, wave)</code>; in the arena that cap is the top non-zero column of the wave row, Mythic</td></tr>
+              <tr><td><code>ItemTooltip.AppendCapNotes</code></td><td>both</td><td>Tooltip text</td></tr>
+              <tr><td><code>CampaignSim.Init</code></td><td><code>CalcHigherRarityDropChance</code></td><td>The developers' offline simulator</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3>Writes to ArenaLegacyDropTables</h3>
+          <p>A scan of every ISIL method for stores to ItemGenerator static slot +16 and of every decompile for <code>+0xb8)+0x10) =</code> finds the static constructor (sets false) and <code>ArenaSimQA.BandBoundaries</code> (save, set true, assert band maths, restore). One more ISIL hit inside a PlayFab iterator's <code>Reset()</code> is a Cpp2IL artifact; the Ghidra body at that address only throws <code>NotSupportedException</code>. <code>ArenaSimQA.Run</code> has no caller in the binary.</p>
+        </div>
+      </details>
+
+      <details class="evid">
+        <summary>Reproduce it yourself</summary>
+        <div class="inner">
+          <p>You need the game folder (Steam, Lootborne, Manage, Browse local files). Only read from it. Two files matter:</p>
+<pre><code>Lootborne/GameAssembly.dll
+Lootborne/Lootborne_Data/il2cpp_data/Metadata/global-metadata.dat</code></pre>
+          <p>Step 1 alone, with no Ghidra, already shows the single static read and the absence of stat calls. Step 2 gives readable C for whole function bodies. Step 3 checks the data tables.</p>
+
+          <h3>Step 1. Cpp2IL stubs and ISIL (about 10 minutes)</h3>
+          <p>Download a Cpp2IL build from <a href="https://github.com/SamboyCoding/Cpp2IL/releases">github.com/SamboyCoding/Cpp2IL</a> (this used 2022.1.0-pre-release.21) and run it twice:</p>
+<pre><code># class stubs: every field offset and method RVA
+./Cpp2IL --game-path "/path/to/Lootborne" --output-as diffable-cs --output-to cpp2il-out
+# pseudo-assembly per method, one .txt per class
+./Cpp2IL --game-path "/path/to/Lootborne" --output-as isil --output-to isil-out
+
+# the static flag and its slot (expect: public static bool ArenaLegacyDropTables; //Field offset: 0x10)
+grep -n "ArenaLegacyDropTables" cpp2il-out/DiffableCs/Assembly-CSharp/AutoBattle/Inventory/ItemGenerator.cs
+
+# the milestone methods and their RVAs
+grep -n -B2 -E "MilestonePcts|MilestoneAscendedPct|RollMilestoneRarity|GenerateArenaMilestoneDrop" \
+  cpp2il-out/DiffableCs/Assembly-CSharp/AutoBattle/Combat/CombatManager.cs
+
+# ISIL of MilestonePcts: the only memory read is ItemGenerator static +16, then wave compares
+awk '/^Method: .*MilestonePcts/{f=1} f&amp;&amp;/^Method:/&amp;&amp;!/MilestonePcts/{f=0} f' \
+  isil-out/IsilDump/Assembly-CSharp/AutoBattle/Combat/CombatManager.txt | grep -n -E "typeof|\[rax\+184\]|\[rax\+16\]|Call"
+# expect: typeof(AutoBattle.Inventory.ItemGenerator) ... Move rax, [rax+184] ... Compare [rax+16], 0
+#         and no other typeof or Call lines apart from il2cpp_* runtime init
+
+# every call made by GenerateArenaMilestoneDrop
+awk '/^Method: .*GenerateArenaMilestoneDrop/{f=1} f&amp;&amp;/^Method:/&amp;&amp;!/GenerateArenaMilestoneDrop/{f=0} f' \
+  isil-out/IsilDump/Assembly-CSharp/AutoBattle/Combat/CombatManager.txt | grep "Call " | sed 's/.*Call //' | cut -d, -f1 | sort -u
+# expect: NextDropSeed, RollMilestoneRarity, get_ActiveItemGenerator, get_ActivePlayerState, ItemGenerator.GenerateItem,
+#         NewUnseededRng, Timbra, PlayerState.GenerateUid, Debug.LogWarning, Object.op_Equality
+
+# every store to the static anywhere in the game
+cd isil-out/IsilDump/Assembly-CSharp
+for f in $(grep -rl "typeof(AutoBattle.Inventory.ItemGenerator)" .); do
+  awk -v F="$f" '/^Method:/{m=$0} /typeof\(AutoBattle.Inventory.ItemGenerator\)/{t=NR}
+       (t &amp;&amp; NR-t&lt;=12 &amp;&amp; /Move \[r[a-z0-9]+\+16\],/){print F" :: "m" :: "$0}' "$f"; done
+# expect: ItemGenerator .cctor, ArenaSimQA.BandBoundaries (twice), one PlayFab iterator Reset() artifact
+
+# every caller of the two stat calculators
+grep -rn -E "StatsCalculator\.Calc(BonusDropChance|HigherRarityDropChance)" . | grep -v "^./AutoBattle/Core/StatsCalculator.txt"
+# expect: CombatManager (ApplyBattleOutcome, GenerateDropItem), UI/ItemTooltip, Sim/CampaignSim</code></pre>
+
+          <h3>Step 2. Ghidra decompile of the exact functions (30 to 60 minutes, mostly waiting)</h3>
+          <p>Install JDK 21 and <a href="https://github.com/NationalSecurityAgency/ghidra/releases">Ghidra</a> (12.1.3 here). Build a name map from the stubs so functions get their C# names, import the DLL without auto-analysis, and decompile only the functions you want. The three helper scripts are below the commands.</p>
+<pre><code>export JAVA_HOME=/path/to/jdk-21 PATH=$JAVA_HOME/bin:$PATH MAXMEM=6G
+GH=/path/to/ghidra_12.x_PUBLIC/support/analyzeHeadless
+
+# 1. RVA -&gt; name map (base 0x180000000 for GameAssembly.dll); about 110k functions
+python3 tools/funcmap.py cpp2il-out/DiffableCs funcs_named.txt
+
+# 2. import once, no auto-analysis (that would take hours on a 40 MB IL2CPP binary)
+$GH ghidra_proj LB -import "/path/to/Lootborne/GameAssembly.dll" -noanalysis
+
+# 3. create and name a function at every RVA
+$GH ghidra_proj LB -process GameAssembly.dll -noanalysis -scriptPath tools -postScript SetupFuncs.java funcs_named.txt
+
+# 4. decompile by name prefix
+cat &gt; want.txt &lt;&lt;'EOF'
+AutoBattle.Combat.CombatManager.MilestonePcts
+AutoBattle.Combat.CombatManager.MilestoneAscendedPct
+AutoBattle.Combat.CombatManager.RollMilestoneRarity
+AutoBattle.Combat.CombatManager.GenerateArenaMilestoneDrop
+AutoBattle.Combat.CombatManager.GenerateArenaReclearDrop
+AutoBattle.Combat.CombatManager.GenerateDropItem
+AutoBattle.Combat.CombatManager.ApplyBattleOutcome
+AutoBattle.Inventory.ItemGenerator
+AutoBattle.Inventory.ItemGrant.Grant
+AutoBattle.Inventory.PortableDropRng
+AutoBattle.Data.ItemInstance.FromTemplate
+AutoBattle.Core.StatsCalculator.CalcBonusDropChance
+AutoBattle.Core.StatsCalculator.CalcHigherRarityDropChance
+AutoBattle.Sim.ArenaSimQA.BandBoundaries
+EOF
+$GH ghidra_proj LB -process GameAssembly.dll -noanalysis -scriptPath tools -postScript DecompList.java want.txt decomp_out</code></pre>
+          <details><summary><code>tools/funcmap.py</code></summary>
+<pre><code>import re,os,glob,sys
+base=0x180000000
+root=sys.argv[1]; out=open(sys.argv[2],'w'); n=0
+for path in glob.glob(root+'/**/*.cs',recursive=True):
+    ns=''; stack=[]; pending=None
+    for ln in open(path,errors='replace'):
+        s=ln.strip(); depth=len(ln)-len(ln.lstrip('\t'))
+        m=re.search(r'RVA = "0x([0-9A-Fa-f]+)"',s)
+        if m: pending=int(m.group(1),16); continue
+        m=re.match(r'namespace ([\w.]+);',s)
+        if m: ns=m.group(1); continue
+        if s.startswith('[') or s.startswith('//') or not s: continue
+        m=re.search(r'\b(?:class|struct|enum|interface) ([\w`&lt;&gt;]+)',s)
+        if m and '(' not in s:
+            stack=[c for c in stack if c[0]&lt;depth]+[(depth,m.group(1))]; continue
+        if pending is not None and '(' in s:
+            mm=re.search(r'([\w&lt;&gt;|.`,]+)\s*\(',s)
+            if mm:
+                cls='+'.join(c[1] for c in stack if c[0]&lt;depth)
+                full=(ns+'.' if ns else '')+cls+'.'+mm.group(1)
+                full=re.sub(r'[^\w.+&lt;&gt;|`$]','_',full)
+                out.write(f"{base+pending:x} {full}\n"); n+=1
+            pending=None
+out.close(); print(n,'functions')</code></pre>
+          </details>
+          <details><summary><code>tools/SetupFuncs.java</code></summary>
+<pre><code>import ghidra.app.script.GhidraScript;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.listing.Function;
+import ghidra.program.model.symbol.SourceType;
+import ghidra.app.cmd.disassemble.DisassembleCommand;
+import ghidra.app.cmd.function.CreateFunctionCmd;
+import java.io.*;
+public class SetupFuncs extends GhidraScript {
+  public void run() throws Exception {
+    String[] a = getScriptArgs();
+    BufferedReader br = new BufferedReader(new FileReader(a[0]));
+    String line; int n=0;
+    while ((line = br.readLine()) != null) {
+      String[] p = line.trim().split(" ");
+      if (p.length &lt; 2) continue;
+      Address addr = toAddr(Long.parseLong(p[0], 16));
+      Function f = getFunctionAt(addr);
+      if (f == null) {
+        new DisassembleCommand(addr, null, true).applyTo(currentProgram, monitor);
+        new CreateFunctionCmd(addr).applyTo(currentProgram, monitor);
+        f = getFunctionAt(addr);
+      }
+      if (f != null) { try { f.setName(p[1], SourceType.USER_DEFINED); } catch (Exception e) {} n++; }
+    }
+    br.close();
+    println("functions set up: " + n);
+  }
+}</code></pre>
+          </details>
+          <details><summary><code>tools/DecompList.java</code></summary>
+<pre><code>import ghidra.app.script.GhidraScript;
+import ghidra.app.decompiler.*;
+import ghidra.program.model.listing.Function;
+import ghidra.program.model.symbol.*;
+import java.io.*;
+import java.util.*;
+public class DecompList extends GhidraScript {
+  public void run() throws Exception {
+    String[] a = getScriptArgs();
+    File outDir = new File(a[1]); outDir.mkdirs();
+    DecompInterface di = new DecompInterface();
+    di.setOptions(new DecompileOptions());
+    di.openProgram(currentProgram);
+    BufferedReader br = new BufferedReader(new FileReader(a[0]));
+    String line; int n=0;
+    SymbolTable st = currentProgram.getSymbolTable();
+    while ((line = br.readLine()) != null) {
+      String want = line.trim(); if (want.isEmpty()) continue;
+      List&lt;Function&gt; fs = new ArrayList&lt;&gt;();
+      SymbolIterator it = st.getSymbolIterator(want + "*", true);
+      while (it.hasNext()) { Symbol s = it.next(); Function f = getFunctionAt(s.getAddress()); if (f != null) fs.add(f); }
+      if (fs.isEmpty()) { println("NOT FOUND: " + want); continue; }
+      for (Function f : fs) {
+        DecompileResults r = di.decompileFunction(f, 180, monitor);
+        String c = (r != null &amp;&amp; r.getDecompiledFunction() != null) ? r.getDecompiledFunction().getC() : "// decompile failed";
+        PrintWriter pw = new PrintWriter(new File(outDir, f.getName() + ".c"));
+        pw.println("// " + f.getName() + " @ " + f.getEntryPoint());
+        pw.println(c); pw.close(); n++;
+      }
+    }
+    br.close(); di.dispose();
+    println("decompiled: " + n);
+  }
+}</code></pre>
+          </details>
+          <p>How to read IL2CPP decompiles:</p>
+          <ul>
+            <li><code>FUN_1829c5970(0x...)</code> and <code>cRam... = '\x01'</code> blocks at the top are runtime metadata init. Ignore them.</li>
+            <li><code>*(int *)(X + 0xe4) == 0</code> followed by <code>func_0x0001829c5cb0()</code> is the static-constructor check for class <code>X</code>. Ignore it.</li>
+            <li><code>*(T *)(*(longlong *)(CLASS + 0xb8) + OFF)</code> is static field <code>OFF</code> of <code>CLASS</code>. Match <code>OFF</code> to the <code>//Field offset:</code> comment on a <code>static</code> field in the stub.</li>
+            <li><code>*(T *)(obj + OFF)</code> is an instance field. PlayerState +0x119 endlessMode, +0x124 maxWaveRecord, +0x120 waveKillCount, +0x1c level, +0x90 inventory; ItemInstance +0x2c rarity, +0x50 isNew, +0x58 rarityPromoted; ConsumableModifiers +0x48 dropRateBonus, +0x54 higherRarityBonus.</li>
+            <li><code>FUN_1821a79a0(0)</code> is <code>UnityEngine.Random.value</code>; <code>FUN_1821a7810(a, b, 0)</code> is <code>Random.Range(int, int)</code>.</li>
+            <li>Hex floats: <code>python3 -c "import struct;print(struct.unpack('&lt;f',bytes.fromhex('42640000')[::-1]))"</code> prints 57.0.</li>
+          </ul>
+          <p>What to confirm in <code>decomp_out/</code>:</p>
+          <ol>
+            <li>In the three milestone files the only read not derived from a parameter is <code>(lRam... + 0xb8) + 0x10</code>, on the class whose <code>ToCumBp</code> is called in <code>RollMilestoneRarity</code>. The <code>lRam</code> address changes per build.</li>
+            <li><code>GenerateArenaMilestoneDrop.c</code> calls only <code>get_ActiveItemGenerator</code>, <code>get_ActivePlayerState</code>, <code>GenerateUid</code>, <code>NextDropSeed</code>, <code>NewUnseededRng</code> or <code>DropSeedInput_NewRng</code>, <code>RollMilestoneRarity</code>, <code>GenerateItem(..., 1, 0)</code> and <code>Timbra</code>.</li>
+            <li><code>ApplyDropProgressionGate.c</code> opens with the <code>+0x119 != 0</code> early return and <code>ApplyOverlevelDropDampening.c</code> wraps its demotion in <code>+0x119 == 0</code>.</li>
+            <li><code>FromTemplate.c</code> is a field-by-field copy with no <code>Random</code> call.</li>
+            <li>In <code>ApplyBattleOutcome.c</code> the <code>GenerateArenaMilestoneDrop</code> call is guarded by <code>+0x120 &gt; 9</code>, <code>wave % 5 == 0</code> and <code>+0x124 &lt; wave</code>, inside the <code>else</code> of <code>if ((ps + 0x119 == 0) || (enemy + 0xa0 != 0))</code>.</li>
+            <li><code>grep -l "0xb8) + 0x10) = " decomp_out/*.c</code> lists only <code>ArenaSimQA.BandBoundaries.c</code>, and that function restores the value.</li>
+          </ol>
+
+          <h3>Step 3. Metadata tables (2 minutes)</h3>
+          <p>Array initialisers live in <code>global-metadata.dat</code>, not in the DLL. The regular arena rows are 5 floats with no Ascended column, and the boss reward array is 4,4,4,5:</p>
+<pre><code>python3 - /path/to/Lootborne/Lootborne_Data/il2cpp_data/Metadata/global-metadata.dat &lt;&lt;'EOF'
+import struct,sys
+d=open(sys.argv[1],'rb').read()
+f=lambda *v: b''.join(struct.pack('&lt;f',x) for x in v)
+for row in [(14,22,48,14,2),(10,19,45,20,6)]:          # ARENA_RARITY_TABLE rows 2 and 4
+    i=d.find(f(*row)); print(row, hex(i), struct.unpack('&lt;8f', d[i:i+32]))   # 5 values, then unrelated data
+p=b''.join(struct.pack('&lt;i',x) for x in (4,4,4,5)); print('boss rarities at', hex(d.find(p)), 'count', d.count(p))
+EOF</code></pre>
+
+          <h3>Step 4. No-tools cross-check</h3>
+          <p>The save file is plain JSON at <span class="num">%USERPROFILE%\AppData\LocalLow\Turbolento Games\Lootborne\save_&lt;steamid&gt;_game.json</span>. A milestone item carries <code>grantSource: 4</code> and a <code>dropSeed</code> string; a reclear item carries <code>grantSource: 11</code>. <code>maxWaveRecord</code> only moves on a first clear, which is the only milestone gate.</p>
+
+          <h3>Caveats</h3>
+          <ul>
+            <li>This is static analysis of the client. The client generates the item and its rarity locally; nothing on this path contacts the server before the rarity is chosen.</li>
+            <li>The boss reward rarities rest on a unique byte-pattern match in metadata plus the code's fallback of Mythic, not a parsed array header.</li>
+            <li>A new Steam build changes RVAs and the <code>lRam</code> class addresses. Method names and field offsets usually survive, so rerun Step 1 and recheck offsets before reusing the numbers above.</li>
+          </ul>
+        </div>
+      </details>
     </div>
   </main>
 
@@ -2273,9 +2626,9 @@ $('banAdd').addEventListener('click', () => { const v = $('banInput').value.trim
 $('banChips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b) { state.bans.splice(+b.dataset.i, 1); renderBans(); } });
 document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 function showTab(t) {
-  if (['optimise', 'compare', 'pvp', 'model'].indexOf(t) < 0) t = 'optimise';
+  if (['optimise', 'compare', 'pvp', 'model', 'ascended'].indexOf(t) < 0) t = 'optimise';
   document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === t ? 'true' : 'false'));
-  ['optimise', 'compare', 'pvp', 'model'].forEach(x => { $('pane-' + x).hidden = x !== t; });
+  ['optimise', 'compare', 'pvp', 'model', 'ascended'].forEach(x => { $('pane-' + x).hidden = x !== t; });
   if (t === 'pvp') pvpRestr();
   try { history.replaceState(null, '', '#' + t); } catch (e) { /* not essential */ }
 }

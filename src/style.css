@@ -103,3 +103,16 @@ td.n, th.n { text-align: right; white-space: nowrap; }
 .card select { width: 100%; } .card .row input[type="number"] { width: 4.6em; }
 .prose { max-width: 72ch; display: flex; flex-direction: column; gap: 12px; } .prose ul { margin: 0; padding-left: 20px; }
 .err { color: var(--bad); }
+
+.prose.wide { max-width: 100ch; }
+.prose h3 { margin-top: 6px; }
+.prose code { font: .86em var(--f-mono); background: var(--panel2); padding: 1px 5px; border-radius: 3px; }
+.prose pre { font: .8rem/1.5 var(--f-mono); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0; }
+.prose pre code { background: none; padding: 0; font-size: inherit; }
+.prose ol { margin: 0; padding-left: 22px; }
+.pill.ok { border-color: var(--good); color: var(--good); } .pill.inf { border-color: var(--warn); color: var(--warn); }
+details.evid { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 10px 14px; }
+details.evid > summary { cursor: pointer; font: 600 .95rem var(--f-display); }
+details.evid .inner { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; min-width: 0; }
+details.evid details > summary { cursor: pointer; font-size: .9rem; }
+details.evid details > pre { margin-top: 8px; }

@@ -432,9 +432,9 @@ $('banAdd').addEventListener('click', () => { const v = $('banInput').value.trim
 $('banChips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b) { state.bans.splice(+b.dataset.i, 1); renderBans(); } });
 document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 function showTab(t) {
-  if (['optimise', 'compare', 'pvp', 'model'].indexOf(t) < 0) t = 'optimise';
+  if (['optimise', 'compare', 'pvp', 'model', 'ascended'].indexOf(t) < 0) t = 'optimise';
   document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === t ? 'true' : 'false'));
-  ['optimise', 'compare', 'pvp', 'model'].forEach(x => { $('pane-' + x).hidden = x !== t; });
+  ['optimise', 'compare', 'pvp', 'model', 'ascended'].forEach(x => { $('pane-' + x).hidden = x !== t; });
   if (t === 'pvp') pvpRestr();
   try { history.replaceState(null, '', '#' + t); } catch (e) { /* not essential */ }
 }
