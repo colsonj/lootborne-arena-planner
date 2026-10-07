@@ -302,7 +302,7 @@ details.evid details > pre { margin-top: 8px; }
       <h3>First clear of a milestone wave (new record)</h3>
       <p>A milestone fires only the first time you clear a wave that is a multiple of 5 (wave 5, 10, 15, 20 and so on), once per wave ever. The code groups those waves into four bands.</p>
       <div class="tw"><table>
-        <thead><tr><th>Milestone wave (first clear only)</th><th class="n">Epic</th><th class="n">Legendary</th><th class="n">Mythic</th><th class="n">Ascended</th></tr></thead>
+        <thead><tr><th>Milestone wave</th><th class="n">Epic</th><th class="n">Legendary</th><th class="n">Mythic</th><th class="n">Ascended</th></tr></thead>
         <tbody>
           <tr><td>5, 10, 15</td><td class="n">57%</td><td class="n">43%</td><td class="n">0%</td><td class="n">0%</td></tr>
           <tr><td>20, 25, 30, 35</td><td class="n">55%</td><td class="n">35%</td><td class="n">8%</td><td class="n">2%</td></tr>
@@ -311,9 +311,9 @@ details.evid details > pre { margin-top: 8px; }
         </tbody>
       </table></div>
       <h3>Re-clearing any wave at or below your record</h3>
-      <p>A reclear is every wave you finish at or below your record, not only the multiples of 5. The only multiple-of-5 test in the code is on the milestone branch (<code>first = wave % 5 == 0 &amp;&amp; maxWaveRecord &lt; wave</code>); the reclear branch checks just <code>wave &lt;= maxWaveRecord</code>. A reclear can only give an Ascended item, nothing else. The chance is one fifth of the Ascended share of the wave's band, capped at 1% (<code>ARENA_RECLEAR_ASCENDED_FACTOR = 0.2</code>, <code>ARENA_RECLEAR_ASCENDED_CAP_PCT = 1</code> in <code>GameConstants</code>). The cap means waves 40 and up are all the same.</p>
+      <p>A reclear is every wave you finish at or below your record, not only the multiples of 5. The only multiple-of-5 test in the code is on the milestone branch (<code>first = wave % 5 == 0 &amp;&amp; maxWaveRecord &lt; wave</code>); the reclear branch checks just <code>wave &lt;= maxWaveRecord</code>. A reclear can only give an Ascended item, nothing else. The chance is one fifth of the Ascended share of the wave's band (the "band share" below), capped at 1% (<code>ARENA_RECLEAR_ASCENDED_FACTOR = 0.2</code>, <code>ARENA_RECLEAR_ASCENDED_CAP_PCT = 1</code> in <code>GameConstants</code>). The cap means waves 40 and up are all the same.</p>
       <div class="tw"><table>
-        <thead><tr><th>Any wave finished (at or below record)</th><th class="n">Band's Ascended share</th><th>Reclear formula</th><th class="n">Ascended on reclear</th><th class="n">Waves per Ascended</th></tr></thead>
+        <thead><tr><th>Wave</th><th class="n">Band share</th><th>Formula</th><th class="n">Chance</th><th class="n">Waves per drop</th></tr></thead>
         <tbody>
           <tr><td>1 to 15</td><td class="n">0%</td><td>0 × 0.2</td><td class="n">0%</td><td class="n">never</td></tr>
           <tr><td>16 to 39</td><td class="n">2%</td><td>2 × 0.2 = 0.4</td><td class="n">0.4%</td><td class="n">250</td></tr>
