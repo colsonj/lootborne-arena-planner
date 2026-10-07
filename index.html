@@ -293,34 +293,35 @@ details.evid details > pre { margin-top: 8px; }
       <h3>What actually decides it</h3>
       <ul>
         <li><b>New-record milestones.</b> Finish a wave that is a multiple of 5 for the first time ever (wave above your record) and you get one item from the table below. The roll is Epic, Legendary, Mythic or Ascended; the Ascended share is the remainder.</li>
-        <li><b>Reclears.</b> Finish a multiple-of-5 wave at or below your record and there is a small Ascended chance: one fifth of the milestone share, capped at 1%. That is 0.4% on waves 16 to 39 and 1% from wave 40. Nothing else can drop on a reclear.</li>
+        <li><b>Reclears.</b> Finish <em>any</em> wave at or below your record, milestone or not, and there is a small Ascended chance: one fifth of the Ascended share of that wave's band, capped at 1%. That is 0.4% on waves 16 to 39 and 1% from wave 40; wave 73 rolls the same 1% as wave 70. Nothing else can drop on a reclear.</li>
         <li><b>The wave-40 boss.</b> Beating it the first time gives an Ascended item once; bosses 10, 20 and 30 give a Mythic once.</li>
         <li><b>Normal kills never give Ascended.</b> The per-kill loot table tops out at Mythic, and the "higher rarity" promotion is capped at that table's top, so it cannot push a Mythic to Ascended.</li>
         <li><b>Which Ascended you get is a uniform pick</b> among the Ascended templates, with one re-roll rule: it avoids repeating the last item that dropped in the same slot.</li>
         <li><b>No pity, no duplicate protection, no once-per-item rule.</b> The only gate is "wave above record".</li>
       </ul>
       <h3>First clear of a milestone wave (new record)</h3>
+      <p>A milestone fires only the first time you clear a wave that is a multiple of 5 (wave 5, 10, 15, 20 and so on), once per wave ever. The code groups those waves into four bands.</p>
       <div class="tw"><table>
-        <thead><tr><th>Milestone wave</th><th class="n">Epic</th><th class="n">Legendary</th><th class="n">Mythic</th><th class="n">Ascended</th></tr></thead>
+        <thead><tr><th>Milestone wave (first clear only)</th><th class="n">Epic</th><th class="n">Legendary</th><th class="n">Mythic</th><th class="n">Ascended</th></tr></thead>
         <tbody>
           <tr><td>5, 10, 15</td><td class="n">57%</td><td class="n">43%</td><td class="n">0%</td><td class="n">0%</td></tr>
-          <tr><td>20 to 35</td><td class="n">55%</td><td class="n">35%</td><td class="n">8%</td><td class="n">2%</td></tr>
-          <tr><td>40 to 55</td><td class="n">23%</td><td class="n">45%</td><td class="n">22%</td><td class="n">10%</td></tr>
-          <tr><td>60 and up</td><td class="n">10%</td><td class="n">36%</td><td class="n">34%</td><td class="n">20%</td></tr>
+          <tr><td>20, 25, 30, 35</td><td class="n">55%</td><td class="n">35%</td><td class="n">8%</td><td class="n">2%</td></tr>
+          <tr><td>40, 45, 50, 55</td><td class="n">23%</td><td class="n">45%</td><td class="n">22%</td><td class="n">10%</td></tr>
+          <tr><td>60, 65, 70 and every fifth wave after</td><td class="n">10%</td><td class="n">36%</td><td class="n">34%</td><td class="n">20%</td></tr>
         </tbody>
       </table></div>
-      <h3>Re-clearing a milestone wave (at or below your record)</h3>
-      <p>A reclear can only give an Ascended item, nothing else. The chance is one fifth of the milestone's Ascended share, capped at 1% (<code>ARENA_RECLEAR_ASCENDED_FACTOR = 0.2</code>, <code>ARENA_RECLEAR_ASCENDED_CAP_PCT = 1</code> in <code>GameConstants</code>). The cap means waves 40 and up are all the same.</p>
+      <h3>Re-clearing any wave at or below your record</h3>
+      <p>A reclear is every wave you finish at or below your record, not only the multiples of 5. The only multiple-of-5 test in the code is on the milestone branch (<code>first = wave % 5 == 0 &amp;&amp; maxWaveRecord &lt; wave</code>); the reclear branch checks just <code>wave &lt;= maxWaveRecord</code>. A reclear can only give an Ascended item, nothing else. The chance is one fifth of the Ascended share of the wave's band, capped at 1% (<code>ARENA_RECLEAR_ASCENDED_FACTOR = 0.2</code>, <code>ARENA_RECLEAR_ASCENDED_CAP_PCT = 1</code> in <code>GameConstants</code>). The cap means waves 40 and up are all the same.</p>
       <div class="tw"><table>
-        <thead><tr><th>Milestone wave</th><th class="n">Milestone Ascended share</th><th>Reclear formula</th><th class="n">Ascended on reclear</th><th class="n">Reclears per Ascended</th></tr></thead>
+        <thead><tr><th>Any wave finished (at or below record)</th><th class="n">Band's Ascended share</th><th>Reclear formula</th><th class="n">Ascended on reclear</th><th class="n">Waves per Ascended</th></tr></thead>
         <tbody>
-          <tr><td>5, 10, 15</td><td class="n">0%</td><td>0 × 0.2</td><td class="n">0%</td><td class="n">never</td></tr>
-          <tr><td>20 to 35</td><td class="n">2%</td><td>2 × 0.2 = 0.4</td><td class="n">0.4%</td><td class="n">250</td></tr>
-          <tr><td>40 to 55</td><td class="n">10%</td><td>10 × 0.2 = 2, capped</td><td class="n">1%</td><td class="n">100</td></tr>
+          <tr><td>1 to 15</td><td class="n">0%</td><td>0 × 0.2</td><td class="n">0%</td><td class="n">never</td></tr>
+          <tr><td>16 to 39</td><td class="n">2%</td><td>2 × 0.2 = 0.4</td><td class="n">0.4%</td><td class="n">250</td></tr>
+          <tr><td>40 to 59</td><td class="n">10%</td><td>10 × 0.2 = 2, capped</td><td class="n">1%</td><td class="n">100</td></tr>
           <tr><td>60 and up</td><td class="n">20%</td><td>20 × 0.2 = 4, capped</td><td class="n">1%</td><td class="n">100</td></tr>
         </tbody>
       </table></div>
-      <p class="small muted">Wave bands in the code are 1 to 15, 16 to 39, 40 to 59 and 60 up; milestones only land on multiples of 5, so the tables list those. The reclear roll uses Unity's plain random number, not the seeded drop stream. Drop-rate gear and potions still matter for ordinary kills: they raise the chance that a kill drops anything (cap +28%), and higher-rarity gear promotes one tier (cap +24%). They are worth using for Mythic farming, just not for Ascended.</p>
+      <p class="small muted">Wave bands in the code are 1 to 15, 16 to 39, 40 to 59 and 60 up. The milestone table above lists multiples of 5 because milestones only land there; the reclear table lists the full bands because every finished wave rolls. The reclear roll uses Unity's plain random number, not the seeded drop stream. Drop-rate gear and potions still matter for ordinary kills: they raise the chance that a kill drops anything (cap +28%), and higher-rarity gear promotes one tier (cap +24%). They are worth using for Mythic farming, just not for Ascended.</p>
 
       <details class="evid">
         <summary>The code, for anyone who wants to check the claim</summary>
